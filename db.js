@@ -1,123 +1,134 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const db = require('./db');
-const bscscan = require('./bscscan');
+const { Pool } = require('pg');
 
-// 🔧 Inicializa o banco de dados (cria tabelas se não existirem)
-db.inicializar()
-  .then(() => console.log("✅ Database initialized"))
-  .catch(err => console.error("❌ Error initializing DB:", err));
-
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
-
-// 🌐 Web server para manter o Render ativo
-const app = express();
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Voltstone bot running successfully.'));
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-// 🚀 Comando /start
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  const name = msg.from.first_name;
-  const username = msg.from.username || "";
-
-  const user = await db.getUser(chatId);
-  if (!user) await db.addUser(chatId, name, username);
-
-  const text = `
-👋 Hello ${name}!
-
-🚀 Welcome to VoltStone – your USDT (BEP-20) investment portal.
-
-💰 Our project offers variable returns of up to 20% APY with full transparency.
-
-📌 How it works:
-1. Register your BEP-20 wallet
-2. Send USDT to the official address
-3. Track your investments, earnings and request withdrawals anytime
-
-Choose an option below to get started:
-  `;
-
-  bot.sendMessage(chatId, text, {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📥 Deposit", callback_data: "depositar" }],
-        [{ text: "📊 My Wallet", callback_data: "carteira" }],
-        [{ text: "🔁 Withdraw", callback_data: "resgatar" }]
-      ]
-    }
-  });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
-// 🎛️ Callback buttons
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
+// 🔧 Criação automática das tabelas
+async function inicializar() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id BIGINT PRIMARY KEY,
+      nome TEXT,
+      username TEXT,
+      carteira TEXT,
+      valor NUMERIC DEFAULT 0,
+      rendimento NUMERIC DEFAULT 0,
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
 
-  if (data === 'depositar') {
-    bot.sendMessage(chatId, `📥 Send USDT (BEP-20) to this address:\n\n<code>${process.env.WALLET_ADDRESS}</code>\n\n⚠️ Only use the wallet registered in the system.`, {
-      parse_mode: 'HTML'
-    });
+    CREATE TABLE IF NOT EXISTS rendimentos (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES usuarios(id),
+      percentual NUMERIC,
+      valor NUMERIC,
+      data TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS resgates (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES usuarios(id),
+      valor NUMERIC,
+      status TEXT DEFAULT 'pending',
+      solicitado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS transacoes (
+      hash TEXT PRIMARY KEY,
+      from_address TEXT,
+      valor NUMERIC,
+      user_id BIGINT REFERENCES usuarios(id),
+      data TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+// ➕ Novo usuário
+async function addUser(id, nome, username = '') {
+  await pool.query(
+    'INSERT INTO usuarios (id, nome, username) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+    [id, nome, username]
+  );
+}
+
+// 🔍 Buscar usuário
+async function getUser(id) {
+  const result = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
+  return result.rows[0];
+}
+
+// 📥 Registrar depósito
+async function registrarDeposito(userId, valor, txHash = null, fromAddress = null) {
+  await pool.query(
+    'UPDATE usuarios SET valor = valor + $1 WHERE id = $2',
+    [valor, userId]
+  );
+
+  if (txHash) {
+    await pool.query(
+      'INSERT INTO transacoes (hash, from_address, valor, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [txHash, fromAddress, valor, userId]
+    );
+  }
+}
+
+// 🛑 Evitar duplicidade de transação
+async function isTxRegistered(hash) {
+  const result = await pool.query('SELECT 1 FROM transacoes WHERE hash = $1', [hash]);
+  return result.rows.length > 0;
+}
+
+// 📊 Obter carteira
+async function getCarteira(userId) {
+  const result = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [userId]);
+  if (result.rows.length === 0) {
+    return { investido: 0, rendimento: 0 };
   }
 
-  if (data === 'carteira') {
-    const info = await db.getCarteira(chatId);
-    if (!info) {
-      return bot.sendMessage(chatId, '⚠️ You have not made any deposit yet.');
-    }
+  const { valor, rendimento } = result.rows[0];
+  return {
+    investido: parseFloat(valor) || 0,
+    rendimento: parseFloat(rendimento) || 0
+  };
+}
 
-    bot.sendMessage(chatId, `
-📊 Your Wallet:
-💸 Invested: ${info.investido.toFixed(2)} USDT
-📈 Estimated Yield: ${info.rendimento.toFixed(2)} USDT
-`, { parse_mode: 'HTML' });
-  }
+// 👮 Painel Admin
+async function getAdminPanel() {
+  const result = await pool.query(`
+    SELECT COUNT(*) AS count, SUM(valor) AS total, SUM(rendimento) AS rendimento
+    FROM usuarios
+  `);
+  const { count, total, rendimento } = result.rows[0];
+  return {
+    count: parseInt(count),
+    total: parseFloat(total) || 0,
+    rendimento: parseFloat(rendimento) || 0
+  };
+}
 
-  if (data === 'resgatar') {
-    const info = await db.getCarteira(chatId);
-    if (!info || info.investido <= 0) {
-      return bot.sendMessage(chatId, '⚠️ You have no available balance to withdraw.');
-    }
+// 📬 Buscar usuário pela carteira
+async function getUserByAddress(fromAddress) {
+  const result = await pool.query('SELECT * FROM usuarios WHERE carteira = $1', [fromAddress]);
+  return result.rows[0];
+}
 
-    await db.solicitarResgate(chatId, info.investido);
-    bot.sendMessage(chatId, `🔁 Withdrawal request of ${info.investido.toFixed(2)} USDT registered successfully.\n⏳ Please wait for manual processing.`);
-  }
-});
+// 🔁 Solicitação de resgate
+async function solicitarResgate(userId, valor) {
+  await pool.query(
+    'INSERT INTO resgates (user_id, valor) VALUES ($1, $2)',
+    [userId, valor]
+  );
+}
 
-// 🔐 Admin panel
-bot.onText(/\/admin/, async (msg) => {
-  const chatId = msg.chat.id.toString();
-  if (chatId !== process.env.ADMIN_ID) return;
-
-  const { total, rendimento, count } = await db.getAdminPanel();
-
-  bot.sendMessage(chatId, `
-📊 Admin Panel:
-
-👥 Registered Users: ${count}
-💰 Total Invested: ${total.toFixed(2)} USDT
-📈 Total Yield: ${rendimento.toFixed(2)} USDT
-`);
-});
-
-// 🔄 Check new deposits every 60 seconds
-setInterval(async () => {
-  try {
-    const txs = await bscscan.getDeposits();
-    for (let tx of txs) {
-      const user = await db.getUserByAddress(tx.from);
-      if (user) {
-        const alreadyRegistered = await db.isTxRegistered(tx.hash);
-        if (!alreadyRegistered) {
-          await db.registrarDeposito(user.id, tx.value, tx.hash, tx.from);
-          bot.sendMessage(user.id, `✅ Deposit of ${tx.value} USDT confirmed!\n🎉 You’re now earning up to 20% APY.`);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error checking deposits:", err.message);
-  }
-}, 60 * 1000);
+module.exports = {
+  inicializar,
+  addUser,
+  getUser,
+  registrarDeposito,
+  isTxRegistered,
+  getCarteira,
+  getAdminPanel,
+  getUserByAddress,
+  solicitarResgate
+};
