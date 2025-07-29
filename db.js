@@ -5,7 +5,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// 🚀 Cria tabelas se não existirem
+// 🚀 Inicializa e cria as tabelas
 async function inicializar() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -52,23 +52,23 @@ async function addUser(id, nome, username = '') {
   );
 }
 
-// 🔍 Busca usuário
+// 🔍 Busca usuário por ID
 async function getUser(id) {
   const result = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
   return result.rows[0];
 }
 
-// 📥 Registra depósito (e incrementa valores)
-async function registrarDeposito(chatId, valor, txHash = null, from_address = null) {
+// 📥 Registra depósito (incrementa valores + salva tx)
+async function registrarDeposito(userId, valor, txHash = null, from_address = null) {
   await pool.query(
     'UPDATE usuarios SET valor = valor + $1 WHERE id = $2',
-    [valor, chatId]
+    [valor, userId]
   );
 
   if (txHash) {
     await pool.query(
       'INSERT INTO transacoes (hash, from_address, valor, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-      [txHash, from_address, valor, chatId]
+      [txHash, from_address, valor, userId]
     );
   }
 }
@@ -79,18 +79,21 @@ async function isTxRegistered(hash) {
   return result.rows.length > 0;
 }
 
-// 📊 Mostra carteira do usuário
-async function getCarteira(chatId) {
-  const result = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [chatId]);
+// 📊 Retorna carteira do usuário (investido + rendimento)
+async function getCarteira(userId) {
+  const result = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [userId]);
   if (result.rows.length === 0) {
     return { investido: 0, rendimento: 0 };
   }
 
   const { valor, rendimento } = result.rows[0];
-  return { investido: parseFloat(valor), rendimento: parseFloat(rendimento) };
+  return {
+    investido: parseFloat(valor) || 0,
+    rendimento: parseFloat(rendimento) || 0
+  };
 }
 
-// 👮 Painel admin
+// 🧠 Painel do Admin
 async function getAdminPanel() {
   const result = await pool.query('SELECT COUNT(*) AS count, SUM(valor) AS total, SUM(rendimento) AS rendimento FROM usuarios');
   const { count, total, rendimento } = result.rows[0];
@@ -101,10 +104,18 @@ async function getAdminPanel() {
   };
 }
 
-// 🔍 Busca usuário por carteira
+// 🔍 Busca usuário por endereço de carteira
 async function getUserByAddress(fromAddress) {
-  const result = await pool.query('SELECT * FROM usuarios WHERE carteira = $1', [fromAddress]);
+  const result = await pool.query('SELECT * FROM usuarios WHERE LOWER(carteira) = LOWER($1)', [fromAddress]);
   return result.rows[0];
+}
+
+// 💸 Solicita resgate
+async function solicitarResgate(userId, valor) {
+  await pool.query(
+    'INSERT INTO resgates (user_id, valor) VALUES ($1, $2)',
+    [userId, valor]
+  );
 }
 
 module.exports = {
@@ -116,5 +127,6 @@ module.exports = {
   isTxRegistered,
   getCarteira,
   getAdminPanel,
-  getUserByAddress
+  getUserByAddress,
+  solicitarResgate
 };
