@@ -1,113 +1,123 @@
-const { Pool } = require('pg');
+require('dotenv').config();
+const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
+const db = require('./db');
+const bscscan = require('./bscscan');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+// 🔧 Inicializa o banco de dados (cria tabelas se não existirem)
+db.inicializar()
+  .then(() => console.log("✅ Database initialized"))
+  .catch(err => console.error("❌ Error initializing DB:", err));
+
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+
+// 🌐 Web server para manter o Render ativo
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Voltstone bot running successfully.'));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// 🚀 Comando /start
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
+  const name = msg.from.first_name;
+  const username = msg.from.username || "";
+
+  const user = await db.getUser(chatId);
+  if (!user) await db.addUser(chatId, name, username);
+
+  const text = `
+👋 Hello ${name}!
+
+🚀 Welcome to VoltStone – your USDT (BEP-20) investment portal.
+
+💰 Our project offers variable returns of up to 20% APY with full transparency.
+
+📌 How it works:
+1. Register your BEP-20 wallet
+2. Send USDT to the official address
+3. Track your investments, earnings and request withdrawals anytime
+
+Choose an option below to get started:
+  `;
+
+  bot.sendMessage(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📥 Deposit", callback_data: "depositar" }],
+        [{ text: "📊 My Wallet", callback_data: "carteira" }],
+        [{ text: "🔁 Withdraw", callback_data: "resgatar" }]
+      ]
+    }
+  });
 });
 
-// 🔧 Initialize tables
-async function initialize() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id BIGINT PRIMARY KEY,
-      name TEXT,
-      username TEXT,
-      wallet TEXT,
-      invested NUMERIC DEFAULT 0,
-      earnings NUMERIC DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+// 🎛️ Callback buttons
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const data = query.data;
 
-    CREATE TABLE IF NOT EXISTS deposits (
-      hash TEXT PRIMARY KEY,
-      from_address TEXT,
-      value NUMERIC,
-      user_id BIGINT REFERENCES users(id),
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+  if (data === 'depositar') {
+    bot.sendMessage(chatId, `📥 Send USDT (BEP-20) to this address:\n\n<code>${process.env.WALLET_ADDRESS}</code>\n\n⚠️ Only use the wallet registered in the system.`, {
+      parse_mode: 'HTML'
+    });
+  }
 
-    CREATE TABLE IF NOT EXISTS withdrawals (
-      id SERIAL PRIMARY KEY,
-      user_id BIGINT REFERENCES users(id),
-      value NUMERIC,
-      status TEXT DEFAULT 'pending',
-      requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
+  if (data === 'carteira') {
+    const info = await db.getCarteira(chatId);
+    if (!info) {
+      return bot.sendMessage(chatId, '⚠️ You have not made any deposit yet.');
+    }
 
-// ➕ Add new user
-async function addUser(id, name, username = '') {
-  await pool.query(
-    'INSERT INTO users (id, name, username) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-    [id, name, username]
-  );
-}
+    bot.sendMessage(chatId, `
+📊 Your Wallet:
+💸 Invested: ${info.investido.toFixed(2)} USDT
+📈 Estimated Yield: ${info.rendimento.toFixed(2)} USDT
+`, { parse_mode: 'HTML' });
+  }
 
-// 🔍 Get user
-async function getUser(id) {
-  const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
-  return result.rows[0];
-}
+  if (data === 'resgatar') {
+    const info = await db.getCarteira(chatId);
+    if (!info || info.investido <= 0) {
+      return bot.sendMessage(chatId, '⚠️ You have no available balance to withdraw.');
+    }
 
-// 📥 Register deposit
-async function registerDeposit(userId, value, txHash, fromAddress) {
-  await pool.query(
-    'UPDATE users SET invested = invested + $1 WHERE id = $2',
-    [value, userId]
-  );
+    await db.solicitarResgate(chatId, info.investido);
+    bot.sendMessage(chatId, `🔁 Withdrawal request of ${info.investido.toFixed(2)} USDT registered successfully.\n⏳ Please wait for manual processing.`);
+  }
+});
 
-  await pool.query(
-    'INSERT INTO deposits (hash, from_address, value, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-    [txHash, fromAddress, value, userId]
-  );
-}
+// 🔐 Admin panel
+bot.onText(/\/admin/, async (msg) => {
+  const chatId = msg.chat.id.toString();
+  if (chatId !== process.env.ADMIN_ID) return;
 
-// ✅ Check if TX is already recorded
-async function isTxRegistered(hash) {
-  const res = await pool.query('SELECT 1 FROM deposits WHERE hash = $1', [hash]);
-  return res.rows.length > 0;
-}
+  const { total, rendimento, count } = await db.getAdminPanel();
 
-// 📊 Get wallet info
-async function getWalletInfo(userId) {
-  const res = await pool.query('SELECT invested, earnings FROM users WHERE id = $1', [userId]);
-  if (res.rows.length === 0) return null;
+  bot.sendMessage(chatId, `
+📊 Admin Panel:
 
-  const { invested, earnings } = res.rows[0];
-  return { invested: parseFloat(invested), earnings: parseFloat(earnings) };
-}
+👥 Registered Users: ${count}
+💰 Total Invested: ${total.toFixed(2)} USDT
+📈 Total Yield: ${rendimento.toFixed(2)} USDT
+`);
+});
 
-// 📤 Request withdrawal
-async function requestWithdrawal(userId, value) {
-  await pool.query('INSERT INTO withdrawals (user_id, value) VALUES ($1, $2)', [userId, value]);
-}
-
-// 👮 Admin dashboard
-async function getAdminPanel() {
-  const res = await pool.query('SELECT COUNT(*) AS count, SUM(invested) AS total, SUM(earnings) AS earnings FROM users');
-  const { count, total, earnings } = res.rows[0];
-  return {
-    count: parseInt(count),
-    total: parseFloat(total) || 0,
-    earnings: parseFloat(earnings) || 0
-  };
-}
-
-// 🔍 Find user by wallet address
-async function getUserByAddress(wallet) {
-  const res = await pool.query('SELECT * FROM users WHERE wallet = $1', [wallet]);
-  return res.rows[0];
-}
-
-module.exports = {
-  initialize,
-  addUser,
-  getUser,
-  registerDeposit,
-  isTxRegistered,
-  getWalletInfo,
-  requestWithdrawal,
-  getAdminPanel,
-  getUserByAddress
-};
+// 🔄 Check new deposits every 60 seconds
+setInterval(async () => {
+  try {
+    const txs = await bscscan.getDeposits();
+    for (let tx of txs) {
+      const user = await db.getUserByAddress(tx.from);
+      if (user) {
+        const alreadyRegistered = await db.isTxRegistered(tx.hash);
+        if (!alreadyRegistered) {
+          await db.registrarDeposito(user.id, tx.value, tx.hash, tx.from);
+          bot.sendMessage(user.id, `✅ Deposit of ${tx.value} USDT confirmed!\n🎉 You’re now earning up to 20% APY.`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error checking deposits:", err.message);
+  }
+}, 60 * 1000);
