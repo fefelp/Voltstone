@@ -66,19 +66,19 @@ bot.on('callback_query', async (query) => {
 
     bot.sendMessage(chatId, `
 📊 Sua Carteira:
-💸 Investido: ${info.valor.toFixed(2)} USDT
+💸 Investido: ${info.investido.toFixed(2)} USDT
 📈 Rendimento estimado: ${info.rendimento.toFixed(2)} USDT
 `, { parse_mode: 'HTML' });
   }
 
   if (data === 'resgatar') {
     const info = await db.getCarteira(chatId);
-    if (!info || info.valor <= 0) {
+    if (!info || info.investido <= 0) {
       return bot.sendMessage(chatId, '⚠️ Você não possui saldo disponível para resgate.');
     }
 
-    await db.solicitarResgate(chatId, info.valor);
-    bot.sendMessage(chatId, `🔁 Solicitação de resgate no valor de ${info.valor.toFixed(2)} USDT registrada com sucesso.\n⏳ Aguarde o processamento manual.`);
+    await db.solicitarResgate(chatId, info.investido);
+    bot.sendMessage(chatId, `🔁 Solicitação de resgate no valor de ${info.investido.toFixed(2)} USDT registrada com sucesso.\n⏳ Aguarde o processamento manual.`);
   }
 });
 
@@ -101,14 +101,14 @@ bot.onText(/\/admin/, async (msg) => {
 // 🔄 Verificador de depósitos a cada 60 segundos
 setInterval(async () => {
   try {
-    const txs = await bscscan.getDepositos();
+    const txs = await bscscan.getDeposits(); // ✅ nome corrigido
     for (let tx of txs) {
       const user = await db.getUserByAddress(tx.from);
       if (user) {
         const alreadyRegistered = await db.isTxRegistered(tx.hash);
         if (!alreadyRegistered) {
-          await db.registrarDeposito(user.chat_id, tx.value, tx.hash);
-          bot.sendMessage(user.chat_id, `✅ Depósito de ${tx.value} USDT confirmado!\n🎉 Agora você começa a render até 20% APY.`);
+          await db.registrarDeposito(user.id, tx.value, tx.hash, tx.from); // ✅ user.id + from
+          bot.sendMessage(user.id, `✅ Depósito de ${tx.value} USDT confirmado!\n🎉 Agora você começa a render até 20% APY.`);
         }
       }
     }
