@@ -1,147 +1,105 @@
-// bot.js
+const TelegramBot = require('node-telegram-bot-api');
+const { getDeposits } = require('./bscscan');
+const db = require('./utils');
+const TOKEN = process.env.BOT_TOKEN || 'SEU_TOKEN_AQUI';
 
-require('dotenv').config();
-const { Telegraf, Markup } = require('telegraf');
-const fs = require('fs');
-const path = require('path');
-const {
-  formatarValor,
-  formatarData,
-  calcularRendimento
-} = require('./utils');
+const bot = new TelegramBot(TOKEN, { polling: true });
+const ADMIN_ID = '5608086275'; // seu ID
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
-const DB_PATH = path.join(__dirname, 'database.json');
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS || 'SEU_ENDERECO_USDT';
-const ADMIN_ID = '5608086275';
-const RENDIMENTO_APY = 20;
+// /start
+bot.onText(/\/start/, (msg) => {
+  const id = msg.from.id;
+  const firstName = msg.from.first_name;
+  db.addUser(id, msg.from.username, firstName);
 
-// Funções utilitárias de banco
-function carregarDB() {
-  return JSON.parse(fs.readFileSync(DB_PATH));
-}
+  const text = `👋 Olá, *${firstName}*!\n\n` +
+               `💼 *VoltStone Bot* é uma carteira digital de rendimento com USDT (BEP20).\n` +
+               `📈 Você pode investir, acompanhar seus rendimentos e gerenciar sua carteira.\n\n` +
+               `Escolha uma opção abaixo:`;
 
-function salvarDB(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
+  const options = {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '💸 Depositar', callback_data: 'depositar' }, { text: '📊 Saldo', callback_data: 'saldo' }],
+        [{ text: '🔍 Verificar', callback_data: 'check' }, { text: '📈 Rendimentos', callback_data: 'rendimentos' }],
+        [{ text: '👤 Perfil', callback_data: 'perfil' }]
+      ]
+    }
+  };
 
-function registrarUsuario(id, nome, username) {
-  const db = carregarDB();
-  if (!db.usuarios[id]) {
-    db.usuarios[id] = {
-      nome,
-      username,
-      valor_depositado: 0,
-      rendimento_total: 0,
-      data_deposito: new Date().toISOString(),
-      historico: [],
-      resgate_solicitado: false
-    };
-    salvarDB(db);
-  }
-}
-
-// Comandos
-bot.start((ctx) => {
-  registrarUsuario(ctx.from.id, ctx.from.first_name, ctx.from.username);
-  ctx.reply(
-    `👋 Olá ${ctx.from.first_name}!\n\n` +
-      `💼 Este é o VoltStone, seu bot de investimento em USDT.\n` +
-      `💰 Rendimento estimado: até ${RENDIMENTO_APY}% APY.\n\n` +
-      `Escolha uma opção abaixo:`,
-    Markup.keyboard([
-      ['💸 Depositar', '💼 Saldo'],
-      ['📈 Rendimentos', '🔁 Resgatar']
-    ])
-      .resize()
-      .oneTime()
-  );
+  bot.sendMessage(id, text, options);
 });
 
-bot.hears('💸 Depositar', (ctx) => {
-  ctx.reply(
-    `📥 Envie USDT (BEP-20) para este endereço:\n\n` +
-      `\`${WALLET_ADDRESS}\`\n\n` +
-      `🔍 Após enviar, envie uma mensagem para confirmar.`,
-    { parse_mode: 'Markdown' }
-  );
-});
+// Botões inline
+bot.on('callback_query', async (query) => {
+  const data = query.data;
+  const msg = query.message;
 
-bot.hears('💼 Saldo', (ctx) => {
-  const db = carregarDB();
-  const user = db.usuarios[ctx.from.id];
-  if (!user || user.valor_depositado <= 0) {
-    ctx.reply('❌ Nenhum depósito encontrado.');
-    return;
-  }
+  switch (data) {
+    case 'depositar':
+      bot.sendMessage(msg.chat.id, `💳 Envie USDT para a carteira:\n\`\`\`\n0xEacfcC32F15f4055a6F0555C271B43FfB61Abc79\n\`\`\`\nUse /check após enviar.`, { parse_mode: 'Markdown' });
+      break;
 
-  ctx.reply(
-    `💼 Depósito: ${formatarValor(user.valor_depositado)}\n` +
-      `📈 Rendimento acumulado: ${formatarValor(user.rendimento_total)}\n` +
-      `📅 Desde: ${formatarData(user.data_deposito)}`
-  );
-});
+    case 'saldo':
+      const saldo = db.getUser(msg.from.id);
+      if (!saldo) return bot.sendMessage(msg.chat.id, `❌ Nenhum saldo registrado.`);
+      bot.sendMessage(msg.chat.id,
+        `💼 *Seu saldo:*\n\n` +
+        `💰 Investido: ${saldo.valor || 0} USDT\n📈 Rendimento: ${saldo.rendimento || 0} USDT`, { parse_mode: 'Markdown' });
+      break;
 
-bot.hears('📈 Rendimentos', (ctx) => {
-  const db = carregarDB();
-  const user = db.usuarios[ctx.from.id];
-  if (!user || user.historico.length === 0) {
-    ctx.reply('📭 Nenhum rendimento registrado ainda.');
-    return;
+    case 'check':
+      const carteira = db.getCarteira(msg.from.id);
+      if (!carteira) return bot.sendMessage(msg.chat.id, `❗ Registre sua carteira primeiro com /carteira`);
+      const resultado = await getDeposits(carteira, msg.from.id);
+      bot.sendMessage(msg.chat.id, resultado);
+      break;
+
+    case 'perfil':
+      const perfil = db.getUser(msg.from.id);
+      if (!perfil) return bot.sendMessage(msg.chat.id, `❌ Você ainda não tem um perfil.`);
+      bot.sendMessage(msg.chat.id,
+        `👤 *Perfil de Investidor*\n\n` +
+        `🆔 ID: ${msg.from.id}\n` +
+        `📛 Nome: ${perfil.nome}\n` +
+        `🏦 Carteira: ${perfil.carteira || 'não registrada'}\n` +
+        `💰 Investido: ${perfil.valor || 0} USDT\n` +
+        `📈 Rendimento: ${perfil.rendimento || 0} USDT`, { parse_mode: 'Markdown' });
+      break;
+
+    case 'rendimentos':
+      const hist = db.getHistorico(msg.from.id);
+      if (!hist || hist.length === 0) {
+        bot.sendMessage(msg.chat.id, `📭 Nenhum rendimento registrado ainda.`);
+      } else {
+        let texto = "📈 *Histórico de Rendimentos:*\n\n";
+        hist.forEach(item => {
+          texto += `🗓 ${item.data} → +${item.percentual}% = +${item.valor} USDT\n`;
+        });
+        bot.sendMessage(msg.chat.id, texto, { parse_mode: 'Markdown' });
+      }
+      break;
   }
 
-  let texto = '📊 Histórico de Rendimentos:\n\n';
-  user.historico.forEach((item) => {
-    texto += `• ${formatarData(item.data)}: +${item.percentual}% → +${formatarValor(item.valor)}\n`;
-  });
-  ctx.reply(texto);
+  bot.answerCallbackQuery(query.id);
 });
 
-bot.hears('🔁 Resgatar', (ctx) => {
-  const db = carregarDB();
-  const user = db.usuarios[ctx.from.id];
-  if (!user || user.valor_depositado <= 0) {
-    ctx.reply('❌ Você não tem saldo para resgatar.');
-    return;
-  }
-
-  user.resgate_solicitado = true;
-  salvarDB(db);
-
-  ctx.reply('✅ Sua solicitação de resgate foi registrada.');
-
-  bot.telegram.sendMessage(
-    ADMIN_ID,
-    `🔔 Solicitação de resgate:\n` +
-      `👤 ${user.nome} (@${user.username})\n` +
-      `🆔 ID: ${ctx.from.id}\n` +
-      `💰 Total: ${formatarValor(user.valor_depositado + user.rendimento_total)}`
-  );
+// /carteira 0x...
+bot.onText(/\/carteira (0x[a-fA-F0-9]{40})/, (msg, match) => {
+  const id = msg.from.id;
+  const carteira = match[1];
+  db.salvarCarteira(id, carteira);
+  bot.sendMessage(id, `✅ Carteira registrada com sucesso:\n\`${carteira}\``, { parse_mode: 'Markdown' });
 });
 
-bot.command('admin', (ctx) => {
-  if (ctx.from.id.toString() !== ADMIN_ID) {
-    ctx.reply('🚫 Acesso negado.');
-    return;
-  }
-
-  const db = carregarDB();
-  const totalUsuarios = Object.keys(db.usuarios).length;
-  let totalInvestido = 0;
-  let totalRendimento = 0;
-
-  Object.values(db.usuarios).forEach((u) => {
-    totalInvestido += u.valor_depositado;
-    totalRendimento += u.rendimento_total;
-  });
-
-  ctx.reply(
-    `📊 Painel do Admin:\n\n` +
-      `👥 Usuários: ${totalUsuarios}\n` +
-      `💰 Total investido: ${formatarValor(totalInvestido)}\n` +
-      `📈 Rendimento total: ${formatarValor(totalRendimento)}`
-  );
+// /admin
+bot.onText(/\/admin/, (msg) => {
+  if (msg.from.id.toString() !== ADMIN_ID) return;
+  const total = db.getTotalInvestido();
+  const users = db.getTotalUsuarios();
+  bot.sendMessage(msg.chat.id,
+    `📊 *Painel Administrativo*\n\n` +
+    `👥 Usuários: ${users}\n` +
+    `💰 Total Investido: ${total} USDT`, { parse_mode: 'Markdown' });
 });
-
-bot.launch();
-console.log('🤖 VoltStone Bot ativo!');
