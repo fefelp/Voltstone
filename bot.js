@@ -6,13 +6,13 @@ const bscscan = require('./bscscan');
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// 🌐 Web server para manter o Render ativo
+// 🌐 Web server for uptime (Render)
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Voltstone bot rodando com sucesso.'));
-app.listen(PORT, () => console.log(`Servidor ativo na porta ${PORT}`));
+app.get('/', (req, res) => res.send('Voltstone Bot is running successfully.'));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-// 🚀 Comando /start
+// 🚀 /start command
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const name = msg.from.first_name;
@@ -21,98 +21,98 @@ bot.onText(/\/start/, async (msg) => {
   const user = await db.getUser(chatId);
   if (!user) await db.addUser(chatId, name, username);
 
-  const text = `
-👋 Olá ${name}!
+  const welcomeText = `
+👋 Hello ${name}!
 
-🚀 Bem-vindo ao VoltStone – o seu portal de investimentos em USDT (BEP-20).
+🚀 Welcome to VoltStone – your USDT (BEP-20) investment portal.
 
-💰 Nosso projeto oferece rendimentos variáveis de até 20% APY, com total transparência.
+💰 Our project offers dynamic yields up to 20% APY with full transparency.
 
-📌 Como funciona:
-1. Registre sua carteira BEP-20
-2. Envie USDT para o endereço oficial
-3. Acompanhe seus investimentos, rendimentos e solicite resgates quando quiser
+📌 How it works:
+1. Register your BEP-20 wallet
+2. Send USDT to our official address
+3. Track your investments, earnings, and request withdrawals anytime
 
-Escolha uma opção abaixo para começar:
-  `;
+Choose an option below to continue:
+`;
 
-  bot.sendMessage(chatId, text, {
+  bot.sendMessage(chatId, welcomeText, {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "📥 Depositar", callback_data: "depositar" }],
-        [{ text: "📊 Minha Carteira", callback_data: "carteira" }],
-        [{ text: "🔁 Resgatar", callback_data: "resgatar" }]
+        [{ text: "📥 Deposit", callback_data: "deposit" }],
+        [{ text: "📊 My Wallet", callback_data: "wallet" }],
+        [{ text: "🔁 Withdraw", callback_data: "withdraw" }]
       ]
     }
   });
 });
 
-// 🎛️ Callback dos botões
+// 🎛️ Inline button handlers
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  if (data === 'depositar') {
-    bot.sendMessage(chatId, `📥 Envie USDT (BEP-20) para este endereço:\n\n<code>${process.env.WALLET_ADDRESS}</code>\n\n⚠️ Use somente a carteira registrada no sistema.`, {
+  if (data === 'deposit') {
+    bot.sendMessage(chatId, `📥 Send USDT (BEP-20) to this address:\n\n<code>${process.env.WALLET_ADDRESS}</code>\n\n⚠️ Make sure to send only from your registered wallet.`, {
       parse_mode: 'HTML'
     });
   }
 
-  if (data === 'carteira') {
-    const info = await db.getCarteira(chatId);
+  if (data === 'wallet') {
+    const info = await db.getWalletInfo(chatId);
     if (!info) {
-      return bot.sendMessage(chatId, '⚠️ Você ainda não fez nenhum depósito.');
+      return bot.sendMessage(chatId, '⚠️ No deposits found yet.');
     }
 
     bot.sendMessage(chatId, `
-📊 Sua Carteira:
-💸 Investido: ${info.investido.toFixed(2)} USDT
-📈 Rendimento estimado: ${info.rendimento.toFixed(2)} USDT
+📊 Wallet Overview:
+💸 Invested: ${info.invested.toFixed(2)} USDT
+📈 Estimated Earnings: ${info.earnings.toFixed(2)} USDT
 `, { parse_mode: 'HTML' });
   }
 
-  if (data === 'resgatar') {
-    const info = await db.getCarteira(chatId);
-    if (!info || info.investido <= 0) {
-      return bot.sendMessage(chatId, '⚠️ Você não possui saldo disponível para resgate.');
+  if (data === 'withdraw') {
+    const info = await db.getWalletInfo(chatId);
+    if (!info || info.invested <= 0) {
+      return bot.sendMessage(chatId, '⚠️ You have no available balance to withdraw.');
     }
 
-    await db.solicitarResgate(chatId, info.investido);
-    bot.sendMessage(chatId, `🔁 Solicitação de resgate no valor de ${info.investido.toFixed(2)} USDT registrada com sucesso.\n⏳ Aguarde o processamento manual.`);
+    await db.requestWithdrawal(chatId, info.invested);
+    bot.sendMessage(chatId, `🔁 Withdrawal request of ${info.invested.toFixed(2)} USDT registered successfully.\n⏳ Await manual processing.`);
   }
 });
 
-// 🔐 Comando /admin (somente para o administrador)
+// 🔐 /admin command (restricted)
 bot.onText(/\/admin/, async (msg) => {
   const chatId = msg.chat.id.toString();
   if (chatId !== process.env.ADMIN_ID) return;
 
-  const { total, rendimento, count } = await db.getAdminPanel();
+  const { total, earnings, count } = await db.getAdminPanel();
 
   bot.sendMessage(chatId, `
-📊 Painel do Administrador:
+📊 Admin Panel:
 
-👥 Usuários registrados: ${count}
-💰 Total investido: ${total.toFixed(2)} USDT
-📈 Rendimento total: ${rendimento.toFixed(2)} USDT
+👥 Total Users: ${count}
+💰 Total Invested: ${total.toFixed(2)} USDT
+📈 Total Earnings: ${earnings.toFixed(2)} USDT
 `);
 });
 
-// 🔄 Verificador de depósitos a cada 60 segundos
+// 🔄 Check for new deposits every 60s
 setInterval(async () => {
   try {
-    const txs = await bscscan.getDeposits(); // ✅ nome corrigido
-    for (let tx of txs) {
+    const transactions = await bscscan.getDeposits();
+    for (let tx of transactions) {
       const user = await db.getUserByAddress(tx.from);
       if (user) {
         const alreadyRegistered = await db.isTxRegistered(tx.hash);
         if (!alreadyRegistered) {
-          await db.registrarDeposito(user.id, tx.value, tx.hash, tx.from); // ✅ user.id + from
-          bot.sendMessage(user.id, `✅ Depósito de ${tx.value} USDT confirmado!\n🎉 Agora você começa a render até 20% APY.`);
+          await db.registerDeposit(user.id, tx.value, tx.hash, tx.from);
+          bot.sendMessage(user.id, `✅ Deposit of ${tx.value} USDT confirmed!\n🎉 You're now earning up to 20% APY.`);
         }
       }
     }
   } catch (err) {
-    console.error("Erro ao buscar depósitos:", err.message);
+    console.error("Error while checking deposits:", err.message);
   }
 }, 60 * 1000);
