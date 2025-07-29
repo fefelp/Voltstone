@@ -5,7 +5,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// 🚀 Criação automática das tabelas
+// 🚀 Cria tabelas se não existirem
 async function inicializar() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -36,70 +36,85 @@ async function inicializar() {
 
     CREATE TABLE IF NOT EXISTS transacoes (
       hash TEXT PRIMARY KEY,
-      user_id BIGINT REFERENCES usuarios(id),
+      from_address TEXT,
       valor NUMERIC,
+      user_id BIGINT REFERENCES usuarios(id),
       data TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }
 
+// ➕ Adiciona novo usuário
+async function addUser(id, nome, username = '') {
+  await pool.query(
+    'INSERT INTO usuarios (id, nome, username) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+    [id, nome, username]
+  );
+}
+
+// 🔍 Busca usuário
 async function getUser(id) {
-  const res = await pool.query("SELECT * FROM usuarios WHERE id = $1", [id]);
-  return res.rows[0];
+  const result = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
+  return result.rows[0];
 }
 
-async function getUserByAddress(address) {
-  const res = await pool.query("SELECT * FROM usuarios WHERE carteira = $1", [address.toLowerCase()]);
-  return res.rows[0];
+// 📥 Registra depósito (e incrementa valores)
+async function registrarDeposito(chatId, valor, txHash = null, from_address = null) {
+  await pool.query(
+    'UPDATE usuarios SET valor = valor + $1 WHERE id = $2',
+    [valor, chatId]
+  );
+
+  if (txHash) {
+    await pool.query(
+      'INSERT INTO transacoes (hash, from_address, valor, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [txHash, from_address, valor, chatId]
+    );
+  }
 }
 
-async function addUser(id, nome, username = "") {
-  await pool.query("INSERT INTO usuarios (id, nome, username) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING", [id, nome, username]);
+// ✅ Verifica se a transação já foi registrada
+async function isTxRegistered(hash) {
+  const result = await pool.query('SELECT 1 FROM transacoes WHERE hash = $1', [hash]);
+  return result.rows.length > 0;
 }
 
-async function setCarteira(id, carteira) {
-  await pool.query("UPDATE usuarios SET carteira = $1 WHERE id = $2", [carteira.toLowerCase(), id]);
+// 📊 Mostra carteira do usuário
+async function getCarteira(chatId) {
+  const result = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [chatId]);
+  if (result.rows.length === 0) {
+    return { investido: 0, rendimento: 0 };
+  }
+
+  const { valor, rendimento } = result.rows[0];
+  return { investido: parseFloat(valor), rendimento: parseFloat(rendimento) };
 }
 
-async function getCarteiraInfo(id) {
-  const res = await pool.query("SELECT valor, rendimento FROM usuarios WHERE id = $1", [id]);
-  return res.rows[0];
-}
-
-async function registrarDeposito(id, valor, hash) {
-  await pool.query(`
-    INSERT INTO transacoes (hash, user_id, valor) VALUES ($1, $2, $3);
-    UPDATE usuarios SET valor = valor + $3 WHERE id = $2;
-  `, [hash, id, valor]);
-}
-
-async function isTxRegistrada(hash) {
-  const res = await pool.query("SELECT 1 FROM transacoes WHERE hash = $1", [hash]);
-  return res.rows.length > 0;
-}
-
+// 👮 Painel admin
 async function getAdminPanel() {
-  const res = await pool.query(`
-    SELECT COUNT(*) AS usuarios,
-           SUM(valor) AS total,
-           SUM(rendimento) AS rendimento
-    FROM usuarios;
-  `);
+  const result = await pool.query('SELECT COUNT(*) AS count, SUM(valor) AS total, SUM(rendimento) AS rendimento FROM usuarios');
+  const { count, total, rendimento } = result.rows[0];
   return {
-    count: parseInt(res.rows[0].usuarios || 0),
-    total: parseFloat(res.rows[0].total || 0),
-    rendimento: parseFloat(res.rows[0].rendimento || 0)
+    count: parseInt(count),
+    total: parseFloat(total) || 0,
+    rendimento: parseFloat(rendimento) || 0
   };
 }
 
+// 🔍 Busca usuário por carteira
+async function getUserByAddress(fromAddress) {
+  const result = await pool.query('SELECT * FROM usuarios WHERE carteira = $1', [fromAddress]);
+  return result.rows[0];
+}
+
 module.exports = {
+  query: (text, params) => pool.query(text, params),
   inicializar,
-  getUser,
-  getUserByAddress,
   addUser,
-  setCarteira,
-  getCarteiraInfo,
+  getUser,
   registrarDeposito,
-  isTxRegistrada,
-  getAdminPanel
+  isTxRegistered,
+  getCarteira,
+  getAdminPanel,
+  getUserByAddress
 };
