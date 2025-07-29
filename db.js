@@ -5,128 +5,109 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// 🚀 Inicializa e cria as tabelas
-async function inicializar() {
+// 🔧 Initialize tables
+async function initialize() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS usuarios (
+    CREATE TABLE IF NOT EXISTS users (
       id BIGINT PRIMARY KEY,
-      nome TEXT,
+      name TEXT,
       username TEXT,
-      carteira TEXT,
-      valor NUMERIC DEFAULT 0,
-      rendimento NUMERIC DEFAULT 0,
-      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      wallet TEXT,
+      invested NUMERIC DEFAULT 0,
+      earnings NUMERIC DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS rendimentos (
-      id SERIAL PRIMARY KEY,
-      user_id BIGINT REFERENCES usuarios(id),
-      percentual NUMERIC,
-      valor NUMERIC,
-      data TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS resgates (
-      id SERIAL PRIMARY KEY,
-      user_id BIGINT REFERENCES usuarios(id),
-      valor NUMERIC,
-      status TEXT DEFAULT 'pendente',
-      solicitado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS transacoes (
+    CREATE TABLE IF NOT EXISTS deposits (
       hash TEXT PRIMARY KEY,
       from_address TEXT,
-      valor NUMERIC,
-      user_id BIGINT REFERENCES usuarios(id),
-      data TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      value NUMERIC,
+      user_id BIGINT REFERENCES users(id),
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS withdrawals (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES users(id),
+      value NUMERIC,
+      status TEXT DEFAULT 'pending',
+      requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }
 
-// ➕ Adiciona novo usuário
-async function addUser(id, nome, username = '') {
+// ➕ Add new user
+async function addUser(id, name, username = '') {
   await pool.query(
-    'INSERT INTO usuarios (id, nome, username) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-    [id, nome, username]
+    'INSERT INTO users (id, name, username) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+    [id, name, username]
   );
 }
 
-// 🔍 Busca usuário por ID
+// 🔍 Get user
 async function getUser(id) {
-  const result = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
+  const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
   return result.rows[0];
 }
 
-// 📥 Registra depósito (incrementa valores + salva tx)
-async function registrarDeposito(userId, valor, txHash = null, from_address = null) {
+// 📥 Register deposit
+async function registerDeposit(userId, value, txHash, fromAddress) {
   await pool.query(
-    'UPDATE usuarios SET valor = valor + $1 WHERE id = $2',
-    [valor, userId]
+    'UPDATE users SET invested = invested + $1 WHERE id = $2',
+    [value, userId]
   );
 
-  if (txHash) {
-    await pool.query(
-      'INSERT INTO transacoes (hash, from_address, valor, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-      [txHash, from_address, valor, userId]
-    );
-  }
+  await pool.query(
+    'INSERT INTO deposits (hash, from_address, value, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+    [txHash, fromAddress, value, userId]
+  );
 }
 
-// ✅ Verifica se a transação já foi registrada
+// ✅ Check if TX is already recorded
 async function isTxRegistered(hash) {
-  const result = await pool.query('SELECT 1 FROM transacoes WHERE hash = $1', [hash]);
-  return result.rows.length > 0;
+  const res = await pool.query('SELECT 1 FROM deposits WHERE hash = $1', [hash]);
+  return res.rows.length > 0;
 }
 
-// 📊 Retorna carteira do usuário (investido + rendimento)
-async function getCarteira(userId) {
-  const result = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [userId]);
-  if (result.rows.length === 0) {
-    return { investido: 0, rendimento: 0 };
-  }
+// 📊 Get wallet info
+async function getWalletInfo(userId) {
+  const res = await pool.query('SELECT invested, earnings FROM users WHERE id = $1', [userId]);
+  if (res.rows.length === 0) return null;
 
-  const { valor, rendimento } = result.rows[0];
-  return {
-    investido: parseFloat(valor) || 0,
-    rendimento: parseFloat(rendimento) || 0
-  };
+  const { invested, earnings } = res.rows[0];
+  return { invested: parseFloat(invested), earnings: parseFloat(earnings) };
 }
 
-// 🧠 Painel do Admin
+// 📤 Request withdrawal
+async function requestWithdrawal(userId, value) {
+  await pool.query('INSERT INTO withdrawals (user_id, value) VALUES ($1, $2)', [userId, value]);
+}
+
+// 👮 Admin dashboard
 async function getAdminPanel() {
-  const result = await pool.query('SELECT COUNT(*) AS count, SUM(valor) AS total, SUM(rendimento) AS rendimento FROM usuarios');
-  const { count, total, rendimento } = result.rows[0];
+  const res = await pool.query('SELECT COUNT(*) AS count, SUM(invested) AS total, SUM(earnings) AS earnings FROM users');
+  const { count, total, earnings } = res.rows[0];
   return {
     count: parseInt(count),
     total: parseFloat(total) || 0,
-    rendimento: parseFloat(rendimento) || 0
+    earnings: parseFloat(earnings) || 0
   };
 }
 
-// 🔍 Busca usuário por endereço de carteira
-async function getUserByAddress(fromAddress) {
-  const result = await pool.query('SELECT * FROM usuarios WHERE LOWER(carteira) = LOWER($1)', [fromAddress]);
-  return result.rows[0];
-}
-
-// 💸 Solicita resgate
-async function solicitarResgate(userId, valor) {
-  await pool.query(
-    'INSERT INTO resgates (user_id, valor) VALUES ($1, $2)',
-    [userId, valor]
-  );
+// 🔍 Find user by wallet address
+async function getUserByAddress(wallet) {
+  const res = await pool.query('SELECT * FROM users WHERE wallet = $1', [wallet]);
+  return res.rows[0];
 }
 
 module.exports = {
-  query: (text, params) => pool.query(text, params),
-  inicializar,
+  initialize,
   addUser,
   getUser,
-  registrarDeposito,
+  registerDeposit,
   isTxRegistered,
-  getCarteira,
+  getWalletInfo,
+  requestWithdrawal,
   getAdminPanel,
-  getUserByAddress,
-  solicitarResgate
+  getUserByAddress
 };
