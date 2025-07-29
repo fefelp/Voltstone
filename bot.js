@@ -6,13 +6,15 @@ const bscscan = require('./bscscan');
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// 🚀 Web server para manter Render ativo
+// WebServer do Render
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Voltstone bot rodando.'));
-app.listen(PORT, () => console.log(`Servidor escutando na porta ${PORT}`));
+app.get('/', (_, res) => res.send('✅ VoltStone Bot rodando...'));
+app.listen(PORT, () => console.log(`🌐 Servidor Web ouvindo na porta ${PORT}`));
 
-// 📦 Início do bot
+// Inicializa DB
+(async () => await db.inicializar())();
+
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const name = msg.from.first_name;
@@ -20,7 +22,7 @@ bot.onText(/\/start/, async (msg) => {
   const user = await db.getUser(chatId);
   if (!user) await db.addUser(chatId, name);
 
-  bot.sendMessage(chatId, `👋 Olá ${name}!\n\n💼 Este é o VoltStone, seu bot de investimento em USDT.\n💰 Rendimento estimado: até 20% APY.\n\nEscolha uma opção abaixo:`, {
+  bot.sendMessage(chatId, `👋 Olá ${name}!\n\nBem-vindo ao VoltStone 💼\n💰 Rendimento até 20% APY!\nEscolha uma opção:`, {
     reply_markup: {
       inline_keyboard: [
         [{ text: "📥 Depositar", callback_data: "depositar" }],
@@ -30,45 +32,38 @@ bot.onText(/\/start/, async (msg) => {
   });
 });
 
-// 📍 Callback dos botões
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
   if (data === 'depositar') {
-    bot.sendMessage(chatId, `📥 Para investir, envie USDT (BEP20) para este endereço:\n\n👜 <code>${process.env.CARTEIRA}</code>\n\n⚠️ Use somente a carteira registrada.`, {
+    bot.sendMessage(chatId, `📥 Deposite USDT (BEP20) na carteira abaixo:\n\n<code>${process.env.WALLET_ADDRESS}</code>\n\n⚠️ Use somente a carteira cadastrada.`, {
       parse_mode: 'HTML',
     });
   }
 
   if (data === 'carteira') {
     const info = await db.getCarteira(chatId);
-    bot.sendMessage(chatId, `📊 Sua Carteira:\n\n💸 Investido: ${info.investido} USDT\n📈 Rendimento estimado: ${info.rendimento} USDT`, {
-      parse_mode: 'HTML',
-    });
+    bot.sendMessage(chatId, `📊 Sua carteira:\n\n💸 Investido: ${info.investido} USDT\n📈 Rendimento: ${info.rendimento} USDT`);
   }
 });
 
-// 🔐 Comando admin
 bot.onText(/\/admin/, async (msg) => {
   const chatId = msg.chat.id;
   if (chatId.toString() !== process.env.ADMIN_ID) return;
 
-  const { total, rendimento, count } = await db.getAdminPanel();
-  bot.sendMessage(chatId, `📊 Painel do Admin:\n\n👥 Usuários: ${count}\n💰 Total investido: ${total.toFixed(2)} USDT\n📈 Rendimento total: ${rendimento.toFixed(2)} USDT`);
+  const stats = await db.getAdminPanel();
+  bot.sendMessage(chatId, `📊 Painel Admin:\n👥 Usuários: ${stats.usuarios}\n💰 Investido: ${stats.investido} USDT\n📈 Rendimentos: ${stats.rendimento} USDT`);
 });
 
-// ✅ Verificador automático de transações a cada 60s
+// Monitoramento de depósitos
 setInterval(async () => {
   const txs = await bscscan.getDepositos();
   for (let tx of txs) {
     const user = await db.getUserByAddress(tx.from);
-    if (user) {
-      const alreadyRegistered = await db.isTxRegistered(tx.hash);
-      if (!alreadyRegistered) {
-        await db.registrarDeposito(user.chat_id, tx.value, tx.hash);
-        bot.sendMessage(user.chat_id, `✅ Recebemos seu depósito de ${tx.value} USDT!\n🎉 Agora você começa a render até 20% APY!`);
-      }
+    if (user && !(await db.txJaRegistrada(tx.hash))) {
+      await db.registrarDeposito(user.id, tx.valor, tx.hash);
+      bot.sendMessage(user.id, `✅ Depósito de ${tx.valor} USDT confirmado!`);
     }
   }
-}, 60 * 1000);
+}, 60_000);
