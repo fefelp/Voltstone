@@ -5,21 +5,43 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// 🚀 Cria as tabelas se não existirem
 async function inicializar() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS usuarios (
       id BIGINT PRIMARY KEY,
       nome TEXT,
-      investido NUMERIC DEFAULT 0,
-      rendimento NUMERIC DEFAULT 0
-    );
-    
-    CREATE TABLE IF NOT EXISTS depositos (
-      id SERIAL PRIMARY KEY,
-      user_id BIGINT,
-      valor NUMERIC,
-      hash TEXT UNIQUE,
+      username TEXT,
+      carteira TEXT,
+      valor NUMERIC DEFAULT 0,
+      rendimento NUMERIC DEFAULT 0,
       criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS rendimentos (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES usuarios(id),
+      percentual NUMERIC,
+      valor NUMERIC,
+      data TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS resgates (
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES usuarios(id),
+      valor NUMERIC,
+      status TEXT DEFAULT 'pendente',
+      solicitado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS transacoes (
+      id SERIAL PRIMARY KEY,
+      tx_hash TEXT UNIQUE,
+      from_address TEXT,
+      to_address TEXT,
+      valor NUMERIC,
+      user_id BIGINT REFERENCES usuarios(id),
+      registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }
@@ -30,39 +52,48 @@ async function getUser(id) {
 }
 
 async function addUser(id, nome) {
-  await pool.query('INSERT INTO usuarios (id, nome) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nome]);
+  return pool.query('INSERT INTO usuarios (id, nome) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING', [id, nome]);
 }
 
-async function registrarDeposito(user_id, valor, hash) {
-  await pool.query('INSERT INTO depositos (user_id, valor, hash) VALUES ($1, $2, $3)', [user_id, valor, hash]);
-  await pool.query('UPDATE usuarios SET investido = investido + $1 WHERE id = $2', [valor, user_id]);
+async function registrarDeposito(id, valor, hash, from = '') {
+  await pool.query('UPDATE usuarios SET valor = valor + $1 WHERE id = $2', [valor, id]);
+  await pool.query('INSERT INTO transacoes (tx_hash, from_address, to_address, valor, user_id) VALUES ($1, $2, $3, $4, $5)',
+    [hash, from, process.env.WALLET_ADDRESS, valor, id]);
 }
 
-async function txJaRegistrada(hash) {
-  const res = await pool.query('SELECT 1 FROM depositos WHERE hash = $1', [hash]);
+async function isTxRegistered(hash) {
+  const res = await pool.query('SELECT * FROM transacoes WHERE tx_hash = $1', [hash]);
   return res.rowCount > 0;
 }
 
 async function getCarteira(id) {
-  const res = await pool.query('SELECT investido, rendimento FROM usuarios WHERE id = $1', [id]);
+  const res = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [id]);
   return res.rows[0] || { investido: 0, rendimento: 0 };
 }
 
 async function getAdminPanel() {
-  const users = await pool.query('SELECT COUNT(*) FROM usuarios');
-  const invest = await pool.query('SELECT SUM(investido) AS total FROM usuarios');
-  const rend = await pool.query('SELECT SUM(rendimento) AS total FROM usuarios');
+  const totalRes = await pool.query('SELECT SUM(valor) AS total, SUM(rendimento) AS rendimento FROM usuarios');
+  const countRes = await pool.query('SELECT COUNT(*) FROM usuarios');
 
   return {
-    usuarios: parseInt(users.rows[0].count),
-    investido: parseFloat(invest.rows[0].total || 0),
-    rendimento: parseFloat(rend.rows[0].total || 0)
+    total: parseFloat(totalRes.rows[0].total) || 0,
+    rendimento: parseFloat(totalRes.rows[0].rendimento) || 0,
+    count: parseInt(countRes.rows[0].count)
   };
 }
 
-async function getUserByAddress(address) {
-  const res = await pool.query('SELECT * FROM usuarios WHERE carteira = $1', [address.toLowerCase()]);
-  return res.rows[0];
+async function registrarRendimento(id, percentual, valor) {
+  await pool.query('UPDATE usuarios SET rendimento = rendimento + $1 WHERE id = $2', [valor, id]);
+  await pool.query('INSERT INTO rendimentos (user_id, percentual, valor) VALUES ($1, $2, $3)', [id, percentual, valor]);
+}
+
+async function getHistoricoRendimentos(id) {
+  const res = await pool.query('SELECT percentual, valor, data FROM rendimentos WHERE user_id = $1 ORDER BY data DESC LIMIT 10', [id]);
+  return res.rows;
+}
+
+async function solicitarResgate(id, valor) {
+  await pool.query('INSERT INTO resgates (user_id, valor) VALUES ($1, $2)', [id, valor]);
 }
 
 module.exports = {
@@ -71,7 +102,9 @@ module.exports = {
   addUser,
   getCarteira,
   registrarDeposito,
+  isTxRegistered,
   getAdminPanel,
-  getUserByAddress,
-  txJaRegistrada
+  registrarRendimento,
+  getHistoricoRendimentos,
+  solicitarResgate
 };
