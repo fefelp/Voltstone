@@ -1,16 +1,16 @@
 const axios = require('axios');
-const db = require('./db');
 
 const API_KEY = process.env.BSC_API_KEY;
 const RECEIVER = process.env.WALLET_ADDRESS.toLowerCase();
 const TOKEN_ADDRESS = '0x55d398326f99059ff775485246999027b3197955'; // USDT BEP20
 
+// 🔎 Busca depósitos recebidos na carteira principal
 async function getDeposits() {
   try {
     const url = `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${TOKEN_ADDRESS}&address=${RECEIVER}&sort=desc&apikey=${API_KEY}`;
     const res = await axios.get(url);
 
-    if (!res.data || !res.data.result || !Array.isArray(res.data.result)) {
+    if (!res.data || !Array.isArray(res.data.result)) {
       console.log("⚠️ BSCScan retornou dados inválidos.");
       return [];
     }
@@ -26,7 +26,7 @@ async function getDeposits() {
 
     return txs;
   } catch (err) {
-    console.error("Erro ao buscar depósitos:", err.message);
+    console.error("❌ Erro ao buscar depósitos da BSCScan:", err.message);
     return [];
   }
 }
