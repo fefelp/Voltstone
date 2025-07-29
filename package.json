@@ -1,12 +1,13 @@
 {
-  "name": "voltstonebot",
+  "name": "voltstone-bot",
   "version": "1.0.0",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "axios": "^1.6.8",
-    "node-telegram-bot-api": "^0.61.0"
+    "dotenv": "^16.0.0",
+    "node-telegram-bot-api": "^0.61.0",
+    "pg": "^8.10.0"
   }
 }
