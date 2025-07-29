@@ -1,20 +1,12 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
 const db = require('./db');
 
-const TOKEN = process.env.BOT_TOKEN;
-const URL = process.env.URL || 'https://voltstone.onrender.com';
-const PORT = process.env.PORT || 3000;
-const WEBHOOK_PATH = '/bot' + TOKEN;
-
-const bot = new TelegramBot(TOKEN, { webHook: { port: PORT } });
-bot.setWebHook(`${URL}${WEBHOOK_PATH}`);
-
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const ADMIN_ID = "5608086275";
 const WALLET_ADDRESS = "0xEacfcC32F15f4055a6F0555C271B43FfB61Abc79";
 const TOKEN_NAME = "USDT";
-const APY = 20;
+const APY = 20; // Anual, variável
 
 // 🔄 Iniciar banco
 db.inicializar();
@@ -93,21 +85,4 @@ bot.onText(/\/admin/, async (msg) => {
     `💰 Total Investido: ${parseFloat(res2.rows[0].total).toFixed(2)} ${TOKEN_NAME}\n` +
     `📈 Total de Rendimento: ${parseFloat(res3.rows[0].total).toFixed(2)} ${TOKEN_NAME}`
   );
-});
-
-// 🚀 Servidor Express para webhook
-const app = express();
-app.use(express.json());
-
-app.post(WEBHOOK_PATH, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-app.get('/', (_, res) => {
-  res.send('🤖 Bot VoltStone está online via Webhook!');
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando em: ${URL} na porta ${PORT}`);
 });
