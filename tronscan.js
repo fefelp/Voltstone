@@ -1,26 +1,26 @@
-// tronscan.js const axios = require('axios');
+// ✅ tronscan.js const axios = require('axios');
 
-const RECEIVER = process.env.WALLET_ADDRESS.toLowerCase(); const TOKEN_ID = '1002000'; // USDT-TRC20 token ID
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS.toLowerCase(); const TOKEN_CONTRACT = 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj'; // USDT TRC-20
 
-async function getDeposits() { try { const url = https://apilist.tronscanapi.com/api/token_trc20/transfers?limit=50&sort=-timestamp&filterTokenValue=1&relatedAddress=${RECEIVER}; const res = await axios.get(url);
+async function getDeposits() { try { const url = https://apilist.tronscanapi.com/api/transaction?sort=-timestamp&count=true&limit=50&start=0&address=${WALLET_ADDRESS}; const { data } = await axios.get(url);
 
-if (!res.data || !res.data.data || !Array.isArray(res.data.data)) {
-  console.log("⚠️ Invalid TronScan response.");
+if (!data || !Array.isArray(data.data)) {
+  console.log("⚠️ Invalid TronScan response");
   return [];
 }
 
-const transactions = res.data.data
-  .filter(tx => tx.to_address?.toLowerCase() === RECEIVER && tx.tokenInfo.tokenId === TOKEN_ID)
+return data.data
+  .filter(tx => tx.tokenInfo?.tokenId === TOKEN_CONTRACT && tx.toAddress?.toLowerCase() === WALLET_ADDRESS)
   .map(tx => ({
-    hash: tx.transaction_id,
-    from: tx.from_address,
-    value: parseFloat(tx.quant) / 10 ** parseInt(tx.tokenInfo.tokenDecimal),
-    time: new Date(tx.block_timestamp)
+    hash: tx.hash,
+    from: tx.ownerAddress,
+    value: tx.tokenInfo.tokenDecimal
+      ? parseFloat(tx.amount) / (10 ** parseInt(tx.tokenInfo.tokenDecimal))
+      : 0,
+    time: new Date(tx.timestamp)
   }));
 
-return transactions;
-
-} catch (error) { console.error("Error fetching TRON deposits:", error.message); return []; } }
+} catch (error) { console.error("Error fetching deposits from TronScan:", error.message); return []; } }
 
 module.exports = { getDeposits };
 
