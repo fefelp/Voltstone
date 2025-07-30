@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Tride USDT bot is live.'));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-// Language memory
+// Idiomas
 const userLang = {};
 
 const texts = {
@@ -27,7 +27,7 @@ const texts = {
 2. Send USDT to the official address
 3. Track your balance and request withdrawals anytime
 
-Your funds can yield up to 20% APY!`,
+💸 Your funds can yield up to 20% APY!`,
     deposit: "📥 Deposit",
     wallet: "📊 My Wallet",
     withdraw: "🔁 Withdraw",
@@ -47,11 +47,11 @@ Your funds can yield up to 20% APY!`,
 2. Envie USDT para o endereço oficial
 3. Acompanhe seu saldo e solicite saques a qualquer momento
 
-Seus fundos podem render até 20% APY!`,
+💸 Seus fundos podem render até 20% APY!`,
     deposit: "📥 Depositar",
     wallet: "📊 Minha Carteira",
     withdraw: "🔁 Resgatar",
-    sendDepositInfo: (address) => `📥 Envie USDT (TRC-20) para a carteira:\n\n<code>${address}</code>\n\n⚠️ Use apenas sua carteira registrada.`,
+    sendDepositInfo: (address) => `📥 Envie USDT (TRC-20) para:\n\n<code>${address}</code>\n\n⚠️ Use apenas sua carteira registrada.`,
     walletInfo: (data) => `📊 Sua Carteira:\n💸 Investido: ${data.investido.toFixed(2)} USDT\n📈 Rendimento: ${data.rendimento.toFixed(2)} USDT`,
     noDeposit: "⚠️ Você ainda não fez nenhum depósito.",
     noBalance: "⚠️ Você não tem saldo disponível para resgate.",
@@ -67,7 +67,7 @@ Seus fundos podem render até 20% APY!`,
 2. Envía USDT a la dirección oficial
 3. Revisa tu saldo y solicita retiros cuando quieras
 
-Tus fondos pueden generar hasta 20% APY!`,
+💸 Tus fondos pueden generar hasta 20% APY!`,
     deposit: "📥 Depositar",
     wallet: "📊 Mi Billetera",
     withdraw: "🔁 Retirar",
@@ -81,7 +81,7 @@ Tus fondos pueden generar hasta 20% APY!`,
   }
 };
 
-// /start — idioma
+// /start — escolher idioma
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
@@ -96,7 +96,7 @@ bot.onText(/\/start/, async (msg) => {
   });
 });
 
-// language selection + comandos
+// idioma + funções
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -141,7 +141,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Verificar novos depósitos via TRONSCAN a cada 60s
+// Monitoramento automático via TronScan
 setInterval(async () => {
   try {
     const txs = await tronscan.getDeposits();
