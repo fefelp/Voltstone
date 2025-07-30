@@ -1,31 +1,28 @@
 const axios = require('axios');
 
-const API_KEY = process.env.BSC_API_KEY;
-const RECEIVER = process.env.WALLET_ADDRESS?.toLowerCase();
-const TOKEN_ADDRESS = '0x55d398326f99059ff775485246999027b3197955'; // USDT (BEP-20)
+const RECEIVER = process.env.WALLET_ADDRESS;
+const USDT_CONTRACT = 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj'; // USDT TRC-20
 
 async function getDeposits() {
   try {
-    const url = `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${TOKEN_ADDRESS}&address=${RECEIVER}&sort=desc&apikey=${API_KEY}`;
+    const url = `https://apilist.tronscanapi.com/api/token_trc20/transfers?limit=50&start=0&sort=-timestamp&toAddress=${RECEIVER}&contract_address=${USDT_CONTRACT}`;
     const res = await axios.get(url);
 
-    if (!res.data || !Array.isArray(res.data.result)) {
-      console.log("⚠️ Invalid BSCScan response.");
+    if (!res.data || !res.data.data || !Array.isArray(res.data.data)) {
+      console.log("⚠️ Invalid TronScan response.");
       return [];
     }
 
-    const deposits = res.data.result
-      .filter(tx => tx.to.toLowerCase() === RECEIVER)
-      .map(tx => ({
-        hash: tx.hash,
-        from: tx.from,
-        value: parseFloat(tx.value) / (10 ** parseInt(tx.tokenDecimal)),
-        time: new Date(parseInt(tx.timeStamp) * 1000)
-      }));
+    const transactions = res.data.data.map(tx => ({
+      hash: tx.transaction_id,
+      from: tx.from_address,
+      value: parseFloat(tx.quant) / 1e6, // 6 casas decimais
+      time: new Date(tx.block_ts)
+    }));
 
-    return deposits;
-  } catch (err) {
-    console.error("Error fetching BSCScan data:", err.message);
+    return transactions;
+  } catch (error) {
+    console.error("Error fetching Tron deposits:", error.message);
     return [];
   }
 }
