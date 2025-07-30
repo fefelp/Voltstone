@@ -5,7 +5,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// 🔧 Criação automática das tabelas
+// Create tables if not exist
 async function inicializar() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -44,7 +44,6 @@ async function inicializar() {
   `);
 }
 
-// ➕ Novo usuário
 async function addUser(id, nome, username = '') {
   await pool.query(
     'INSERT INTO usuarios (id, nome, username) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
@@ -52,18 +51,24 @@ async function addUser(id, nome, username = '') {
   );
 }
 
-// 🔍 Buscar usuário
 async function getUser(id) {
-  const result = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
-  return result.rows[0];
+  const res = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
+  return res.rows[0];
 }
 
-// 📥 Registrar depósito
-async function registrarDeposito(userId, valor, txHash = null, fromAddress = null) {
-  await pool.query(
-    'UPDATE usuarios SET valor = valor + $1 WHERE id = $2',
-    [valor, userId]
-  );
+async function getCarteira(id) {
+  const res = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [id]);
+  if (res.rows.length === 0) return null;
+
+  const { valor, rendimento } = res.rows[0];
+  return {
+    investido: parseFloat(valor),
+    rendimento: parseFloat(rendimento)
+  };
+}
+
+async function registrarDeposito(userId, valor, txHash, fromAddress) {
+  await pool.query('UPDATE usuarios SET valor = valor + $1 WHERE id = $2', [valor, userId]);
 
   if (txHash) {
     await pool.query(
@@ -73,62 +78,43 @@ async function registrarDeposito(userId, valor, txHash = null, fromAddress = nul
   }
 }
 
-// 🛑 Evitar duplicidade de transação
 async function isTxRegistered(hash) {
-  const result = await pool.query('SELECT 1 FROM transacoes WHERE hash = $1', [hash]);
-  return result.rows.length > 0;
+  const res = await pool.query('SELECT 1 FROM transacoes WHERE hash = $1', [hash]);
+  return res.rows.length > 0;
 }
 
-// 📊 Obter carteira
-async function getCarteira(userId) {
-  const result = await pool.query('SELECT valor, rendimento FROM usuarios WHERE id = $1', [userId]);
-  if (result.rows.length === 0) {
-    return { investido: 0, rendimento: 0 };
-  }
-
-  const { valor, rendimento } = result.rows[0];
-  return {
-    investido: parseFloat(valor) || 0,
-    rendimento: parseFloat(rendimento) || 0
-  };
+async function solicitarResgate(userId, valor) {
+  await pool.query('INSERT INTO resgates (user_id, valor) VALUES ($1, $2)', [userId, valor]);
 }
 
-// 👮 Painel Admin
 async function getAdminPanel() {
-  const result = await pool.query(`
-    SELECT COUNT(*) AS count, SUM(valor) AS total, SUM(rendimento) AS rendimento
+  const res = await pool.query(`
+    SELECT COUNT(*) AS count,
+           SUM(valor) AS total,
+           SUM(rendimento) AS rendimento
     FROM usuarios
   `);
-  const { count, total, rendimento } = result.rows[0];
+  const { count, total, rendimento } = res.rows[0];
   return {
     count: parseInt(count),
-    total: parseFloat(total) || 0,
-    rendimento: parseFloat(rendimento) || 0
+    total: parseFloat(total || 0),
+    rendimento: parseFloat(rendimento || 0)
   };
 }
 
-// 📬 Buscar usuário pela carteira
 async function getUserByAddress(fromAddress) {
-  const result = await pool.query('SELECT * FROM usuarios WHERE carteira = $1', [fromAddress]);
-  return result.rows[0];
-}
-
-// 🔁 Solicitação de resgate
-async function solicitarResgate(userId, valor) {
-  await pool.query(
-    'INSERT INTO resgates (user_id, valor) VALUES ($1, $2)',
-    [userId, valor]
-  );
+  const res = await pool.query('SELECT * FROM usuarios WHERE carteira = $1', [fromAddress]);
+  return res.rows[0];
 }
 
 module.exports = {
   inicializar,
   addUser,
   getUser,
+  getCarteira,
   registrarDeposito,
   isTxRegistered,
-  getCarteira,
+  solicitarResgate,
   getAdminPanel,
-  getUserByAddress,
-  solicitarResgate
+  getUserByAddress
 };
