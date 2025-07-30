@@ -10,26 +10,19 @@ db.inicializar()
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// Web server to keep Render service alive
+// Keep service alive
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Tride USDT bot is live.'));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-// User language preferences (basic, stored in-memory for now)
+// Store user language
 const userLang = {};
 
-// Language texts
+// Multilingual support
 const texts = {
   en: {
-    welcome: `👋 Welcome to Tride USDT – your secure passive income platform on the TRC-20 network.
-
-🚀 How it works:
-1. Register your TRC-20 wallet
-2. Send USDT to the official wallet address
-3. Track your balance and request withdrawals at any time
-
-Choose an option below to begin:`,
+    welcome: `👋 Welcome to Tride USDT – your secure passive income platform on the TRC-20 network.\n\n🚀 How it works:\n1. Register your TRC-20 wallet\n2. Send USDT to the official wallet address\n3. Track your balance and request withdrawals at any time\n\nChoose an option below to begin:`,
     deposit: "📥 Deposit",
     wallet: "📊 My Wallet",
     withdraw: "🔁 Withdraw",
@@ -39,17 +32,9 @@ Choose an option below to begin:`,
     noBalance: "⚠️ You have no available balance to withdraw.",
     withdrawalRequested: (amount) => `🔁 Withdrawal of ${amount.toFixed(2)} USDT requested. Please wait for processing.`,
     depositConfirmed: (amount) => `✅ Deposit of ${amount} USDT confirmed!\n🎉 You are now earning passive income.`,
-    languagePrompt: "🌐 Please select your language:"
   },
   pt: {
-    welcome: `👋 Bem-vindo ao Tride USDT – sua plataforma segura de renda passiva na rede TRC-20.
-
-🚀 Como funciona:
-1. Registre sua carteira TRC-20
-2. Envie USDT para o endereço oficial
-3. Acompanhe seu saldo e solicite saques a qualquer momento
-
-Escolha uma opção abaixo para começar:`,
+    welcome: `👋 Bem-vindo ao Tride USDT – sua plataforma segura de renda passiva na rede TRC-20.\n\n🚀 Como funciona:\n1. Registre sua carteira TRC-20\n2. Envie USDT para o endereço oficial\n3. Acompanhe seu saldo e solicite saques a qualquer momento\n\nEscolha uma opção abaixo para começar:`,
     deposit: "📥 Depositar",
     wallet: "📊 Minha Carteira",
     withdraw: "🔁 Resgatar",
@@ -59,17 +44,9 @@ Escolha uma opção abaixo para começar:`,
     noBalance: "⚠️ Você não tem saldo disponível para resgate.",
     withdrawalRequested: (amount) => `🔁 Resgate de ${amount.toFixed(2)} USDT solicitado. Aguarde o processamento.`,
     depositConfirmed: (amount) => `✅ Depósito de ${amount} USDT confirmado!\n🎉 Você começou a gerar renda passiva.`,
-    languagePrompt: "🌐 Por favor, selecione seu idioma:"
   },
   es: {
-    welcome: `👋 Bienvenido a Tride USDT – tu plataforma segura de ingresos pasivos en la red TRC-20.
-
-🚀 Cómo funciona:
-1. Registra tu cartera TRC-20
-2. Envía USDT a la dirección oficial
-3. Revisa tu saldo y solicita retiros cuando quieras
-
-Elige una opción para comenzar:`,
+    welcome: `👋 Bienvenido a Tride USDT – tu plataforma segura de ingresos pasivos en la red TRC-20.\n\n🚀 Cómo funciona:\n1. Registra tu cartera TRC-20\n2. Envía USDT a la dirección oficial\n3. Revisa tu saldo y solicita retiros cuando quieras\n\nElige una opción para comenzar:`,
     deposit: "📥 Depositar",
     wallet: "📊 Mi Billetera",
     withdraw: "🔁 Retirar",
@@ -79,14 +56,12 @@ Elige una opción para comenzar:`,
     noBalance: "⚠️ No tienes saldo disponible para retirar.",
     withdrawalRequested: (amount) => `🔁 Retiro de ${amount.toFixed(2)} USDT solicitado. Espera el procesamiento.`,
     depositConfirmed: (amount) => `✅ Depósito de ${amount} USDT confirmado!\n🎉 Comenzaste a generar ingresos pasivos.`,
-    languagePrompt: "🌐 Por favor selecciona tu idioma:"
   }
 };
 
-// /start — language selection and welcome
-bot.onText(/\/start/, async (msg) => {
+// /start
+bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-
   bot.sendMessage(chatId, "🌐 Please select your language / Por favor selecione seu idioma / Por favor selecciona tu idioma:", {
     reply_markup: {
       inline_keyboard: [
@@ -98,25 +73,25 @@ bot.onText(/\/start/, async (msg) => {
   });
 });
 
-// Handle language selection
+// Callbacks (language & menu)
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  if (data.startsWith('lang_')) {
-    const lang = data.split('_')[1];
+  if (data.startsWith("lang_")) {
+    const lang = data.split("_")[1];
     userLang[chatId] = lang;
 
-    const { welcome, deposit, wallet, withdraw } = texts[lang];
+    const t = texts[lang];
     const user = await db.getUser(chatId);
     if (!user) await db.addUser(chatId, query.from.first_name, query.from.username || "");
 
-    return bot.sendMessage(chatId, welcome, {
+    return bot.sendMessage(chatId, t.welcome, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: deposit, callback_data: "depositar" }],
-          [{ text: wallet, callback_data: "carteira" }],
-          [{ text: withdraw, callback_data: "resgatar" }]
+          [{ text: t.deposit, callback_data: "depositar" }],
+          [{ text: t.wallet, callback_data: "carteira" }],
+          [{ text: t.withdraw, callback_data: "resgatar" }]
         ]
       }
     });
@@ -143,7 +118,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Check new transactions every 60s
+// Auto-check deposits
 setInterval(async () => {
   try {
     const txs = await tronscan.getDeposits();
