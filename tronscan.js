@@ -1,26 +1,36 @@
-// ✅ tronscan.js const axios = require('axios');
+const axios = require('axios');
 
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS.toLowerCase(); const TOKEN_CONTRACT = 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj'; // USDT TRC-20
+const RECEIVER = process.env.WALLET_ADDRESS.toLowerCase();
+const TOKEN = 'TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7'; // USDT (TRC-20)
 
-async function getDeposits() { try { const url = https://apilist.tronscanapi.com/api/transaction?sort=-timestamp&count=true&limit=50&start=0&address=${WALLET_ADDRESS}; const { data } = await axios.get(url);
+async function getDeposits() {
+  try {
+    const url = `https://apilist.tronscanapi.com/api/token_trc20/transfers?limit=20&sort=-timestamp&relatedAddress=${RECEIVER}`;
+    const res = await axios.get(url);
 
-if (!data || !Array.isArray(data.data)) {
-  console.log("⚠️ Invalid TronScan response");
-  return [];
+    if (!res.data || !res.data.data || !Array.isArray(res.data.data)) {
+      console.log("⚠️ Invalid TronScan response.");
+      return [];
+    }
+
+    const transactions = res.data.data
+      .filter(tx =>
+        tx.to_address.toLowerCase() === RECEIVER &&
+        tx.token_info &&
+        tx.token_info.tokenId === TOKEN
+      )
+      .map(tx => ({
+        hash: tx.transaction_id,
+        from: tx.from_address,
+        value: parseFloat(tx.quant) / 1_000_000,
+        time: new Date(tx.block_ts)
+      }));
+
+    return transactions;
+  } catch (error) {
+    console.error("❌ Error fetching deposits:", error.message);
+    return [];
+  }
 }
 
-return data.data
-  .filter(tx => tx.tokenInfo?.tokenId === TOKEN_CONTRACT && tx.toAddress?.toLowerCase() === WALLET_ADDRESS)
-  .map(tx => ({
-    hash: tx.hash,
-    from: tx.ownerAddress,
-    value: tx.tokenInfo.tokenDecimal
-      ? parseFloat(tx.amount) / (10 ** parseInt(tx.tokenInfo.tokenDecimal))
-      : 0,
-    time: new Date(tx.timestamp)
-  }));
-
-} catch (error) { console.error("Error fetching deposits from TronScan:", error.message); return []; } }
-
 module.exports = { getDeposits };
-
