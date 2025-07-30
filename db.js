@@ -1,133 +1,104 @@
 const { Pool } = require('pg');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
-
-// Inicializa as tabelas
 async function inicializar() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id BIGINT PRIMARY KEY,
       name TEXT,
       username TEXT,
-      address TEXT
+      wallet TEXT
     );
-
-    CREATE TABLE IF NOT EXISTS transacoes (
+    
+    CREATE TABLE IF NOT EXISTS deposits (
       id SERIAL PRIMARY KEY,
-      chat_id BIGINT REFERENCES users(id),
-      valor NUMERIC,
+      user_id BIGINT REFERENCES users(id),
       hash TEXT UNIQUE,
-      carteira TEXT,
-      timestamp TIMESTAMP DEFAULT NOW()
+      amount NUMERIC,
+      address TEXT,
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE TABLE IF NOT EXISTS resgates (
+    
+    CREATE TABLE IF NOT EXISTS withdrawals (
       id SERIAL PRIMARY KEY,
-      chat_id BIGINT REFERENCES users(id),
-      valor NUMERIC,
-      solicitado_em TIMESTAMP DEFAULT NOW(),
-      processado BOOLEAN DEFAULT FALSE
+      user_id BIGINT REFERENCES users(id),
+      amount NUMERIC,
+      status TEXT DEFAULT 'pending',
+      requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }
 
-async function addUser(id, name, username) {
-  await pool.query(
-    'INSERT INTO users (id, name, username) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING',
-    [id, name, username]
-  );
+async function getUser(chatId) {
+  const res = await pool.query('SELECT * FROM users WHERE id = $1', [chatId]);
+  return res.rows[0];
 }
 
-async function getUser(id) {
-  const res = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
-  return res.rows[0];
+async function addUser(chatId, name, username) {
+  await pool.query(
+    'INSERT INTO users (id, name, username) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING',
+    [chatId, name, username]
+  );
 }
 
 async function getUserByAddress(address) {
-  const res = await pool.query('SELECT * FROM users WHERE LOWER(address) = LOWER($1)', [address]);
+  const res = await pool.query('SELECT * FROM users WHERE LOWER(wallet) = $1', [address.toLowerCase()]);
   return res.rows[0];
 }
 
-async function registrarCarteira(chatId, address) {
-  await pool.query('UPDATE users SET address = $1 WHERE id = $2', [address, chatId]);
+async function registrarDeposito(userId, amount, hash, address) {
+  await pool.query(
+    'INSERT INTO deposits (user_id, amount, hash, address) VALUES ($1, $2, $3, $4)',
+    [userId, amount, hash, address.toLowerCase()]
+  );
+  // Também atualiza a carteira do usuário
+  await pool.query(
+    'UPDATE users SET wallet = $1 WHERE id = $2',
+    [address.toLowerCase(), userId]
+  );
 }
 
 async function isTxRegistered(hash) {
-  const res = await pool.query('SELECT 1 FROM transacoes WHERE hash = $1', [hash]);
+  const res = await pool.query('SELECT id FROM deposits WHERE hash = $1', [hash]);
   return res.rowCount > 0;
 }
 
-async function registrarDeposito(chatId, valor, hash, carteira) {
-  await pool.query(
-    'INSERT INTO transacoes (chat_id, valor, hash, carteira) VALUES ($1, $2, $3, $4)',
-    [chatId, valor, hash, carteira]
-  );
+async function getCarteira(userId) {
+  const res = await pool.query(`
+    SELECT 
+      COALESCE(SUM(amount), 0) AS investido,
+      COALESCE(SUM(amount * 0.2), 0) AS rendimento
+    FROM deposits WHERE user_id = $1
+  `, [userId]);
+  return res.rows[0];
 }
 
-// Calcula rendimento proporcional a até 20% APY
-async function getCarteira(chatId) {
-  const res = await pool.query(
-    'SELECT valor, timestamp FROM transacoes WHERE chat_id = $1',
-    [chatId]
-  );
-
-  let investido = 0;
-  let rendimento = 0;
-
-  const now = new Date();
-
-  for (const row of res.rows) {
-    const valor = parseFloat(row.valor);
-    const timestamp = new Date(row.timestamp);
-    const dias = (now - timestamp) / (1000 * 60 * 60 * 24);
-
-    const apy = 0.20; // 20% ao ano
-    const rendimentoProporcional = valor * (Math.pow(1 + apy, dias / 365) - 1);
-
-    investido += valor;
-    rendimento += rendimentoProporcional;
-  }
-
-  return { investido, rendimento };
-}
-
-async function solicitarResgate(chatId, valor) {
+async function solicitarResgate(userId, amount) {
   await pool.query(
-    'INSERT INTO resgates (chat_id, valor) VALUES ($1, $2)',
-    [chatId, valor]
+    'INSERT INTO withdrawals (user_id, amount) VALUES ($1, $2)',
+    [userId, amount]
   );
 }
 
 async function getAdminPanel() {
-  const res = await pool.query('SELECT chat_id FROM transacoes');
-  const usersSet = new Set(res.rows.map(r => r.chat_id));
-  let total = 0;
-  let rendimento = 0;
-
-  for (const chatId of usersSet) {
-    const { investido, rendimento: userRendimento } = await getCarteira(chatId);
-    total += investido;
-    rendimento += userRendimento;
-  }
+  const totalQuery = await pool.query('SELECT COALESCE(SUM(amount), 0) AS total FROM deposits');
+  const rendimentoQuery = await pool.query('SELECT COALESCE(SUM(amount * 0.2), 0) AS rendimento FROM deposits');
+  const countQuery = await pool.query('SELECT COUNT(*) FROM users');
 
   return {
-    total,
-    rendimento,
-    count: usersSet.size
+    total: parseFloat(totalQuery.rows[0].total),
+    rendimento: parseFloat(rendimentoQuery.rows[0].rendimento),
+    count: parseInt(countQuery.rows[0].count)
   };
 }
 
 module.exports = {
   inicializar,
-  addUser,
   getUser,
+  addUser,
   getUserByAddress,
-  registrarCarteira,
-  isTxRegistered,
   registrarDeposito,
+  isTxRegistered,
   getCarteira,
   solicitarResgate,
   getAdminPanel
