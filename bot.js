@@ -8,7 +8,6 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, { webHook: { port: process.en
 
 // 🧠 Idiomas
 const userLang = {};
-const texts = require('./texts'); // se quiser, separe os textos nesse arquivo ou use inline como já usava
 
 // Conecta Webhook
 bot.setWebHook(`${process.env.BASE_URL}/bot${process.env.BOT_TOKEN}`);
