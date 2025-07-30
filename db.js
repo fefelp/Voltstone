@@ -51,7 +51,6 @@ async function registrarDeposito(userId, amount, hash, address) {
     'INSERT INTO deposits (user_id, amount, hash, address) VALUES ($1, $2, $3, $4)',
     [userId, amount, hash, address.toLowerCase()]
   );
-  // Também atualiza a carteira do usuário
   await pool.query(
     'UPDATE users SET wallet = $1 WHERE id = $2',
     [address.toLowerCase(), userId]
@@ -70,7 +69,12 @@ async function getCarteira(userId) {
       COALESCE(SUM(amount * 0.2), 0) AS rendimento
     FROM deposits WHERE user_id = $1
   `, [userId]);
-  return res.rows[0];
+
+  const row = res.rows[0];
+  return {
+    investido: parseFloat(row.investido),
+    rendimento: parseFloat(row.rendimento)
+  };
 }
 
 async function solicitarResgate(userId, amount) {
