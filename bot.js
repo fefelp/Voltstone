@@ -1,61 +1,65 @@
-import TelegramBot from 'node-telegram-bot-api';
-import fs from 'fs';
-import http from 'http';
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
 
-// Carrega variáveis do env.json
-const config = JSON.parse(fs.readFileSync('./env.json', 'utf-8'));
-const { BOT_TOKEN, ADMIN_ID, CARTEIRA_USDT } = config;
+const env = JSON.parse(fs.readFileSync('./env.json', 'utf-8'));
+const BOT_TOKEN = env.BOT_TOKEN;
+const ADMIN_ID = env.ADMIN_ID;
+const CARTEIRA_USDT = env.CARTEIRA_USDT;
 
-// Inicializa o bot em modo polling
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Carrega ou cria o database
-const dbPath = './database.json';
-let database = { users: [] };
-
-try {
-  if (fs.existsSync(dbPath)) {
-    database = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
-  } else {
-    fs.writeFileSync(dbPath, JSON.stringify(database, null, 2));
-  }
-} catch (err) {
-  console.error("Erro ao carregar o banco de dados:", err);
+// Função para calcular rendimento baseado em 20% APY
+function calcularRendimentos(apy = 20) {
+  const rendimentoMensal = (Math.pow(1 + apy / 100, 1 / 12) - 1) * 100;
+  const rendimentoDiario = (Math.pow(1 + apy / 100, 1 / 365) - 1) * 100;
+  return {
+    apy,
+    mensal: rendimentoMensal.toFixed(2),
+    diario: rendimentoDiario.toFixed(4)
+  };
 }
 
-// Salva database
-function salvarDB() {
-  fs.writeFileSync(dbPath, JSON.stringify(database, null, 2));
-}
-
-// Início
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const user = { id: chatId, username: msg.from.username || 'sem_username' };
+  const nome = msg.from.first_name || "usuário";
+  const rendimento = calcularRendimentos();
 
-  if (!database.users.find(u => u.id === chatId)) {
-    database.users.push(user);
-    salvarDB();
-  }
+  const mensagem = `
+👋 Olá, ${nome}!
 
-  bot.sendMessage(chatId, `👋 Olá! Seja bem-vindo.\nCarteira USDT para depósitos:\n\n${CARTEIRA_USDT}`);
+🎉 Bem-vindo ao TrideUSDT — sua carteira de rendimento automático!
+
+📥 Sua carteira USDT para depósitos:
+\`\`\`
+${CARTEIRA_USDT}
+\`\`\`
+
+📈 Rendimento atual:
+- 🔁 *${rendimento.apy}% APY* (anual)
+- 📅 ~ *${rendimento.mensal}% ao mês*
+- 📆 ~ *${rendimento.diario}% ao dia*
+
+💸 Digite *saque* para solicitar retirada.
+📊 Digite *histórico* para ver suas movimentações.
+🔮 Digite *projeção* para simular seus ganhos.
+📞 Ajuda: fale com @seu_admin_username
+
+✅ Seu saldo é atualizado diariamente.
+  `;
+
+  bot.sendMessage(chatId, mensagem, { parse_mode: "Markdown" });
 });
 
-// Comando só para o admin
-bot.onText(/\/usuarios/, (msg) => {
+bot.on('message', (msg) => {
   const chatId = msg.chat.id;
-  if (chatId.toString() !== ADMIN_ID.toString()) return;
+  const texto = msg.text.toLowerCase();
 
-  const lista = database.users.map(u => `• ${u.username} (${u.id})`).join('\n');
-  const resposta = lista || 'Nenhum usuário registrado ainda.';
-  bot.sendMessage(chatId, `👥 Lista de usuários:\n\n${resposta}`);
-});
-
-// ⚠️ Servidor HTTP obrigatório para Render Web Service
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end('Bot está rodando!');
-}).listen(PORT, () => {
-  console.log(`Servidor HTTP escutando na porta ${PORT}`);
+  if (texto.includes("saque")) {
+    bot.sendMessage(chatId, "💸 Para solicitar um saque, envie o valor desejado e sua carteira USDT TRC20.");
+  } else if (texto.includes("histórico")) {
+    bot.sendMessage(chatId, "📊 Seu histórico estará disponível em breve. Mantenha-se atualizado!");
+  } else if (texto.includes("projecao") || texto.includes("projeção")) {
+    const rendimento = calcularRendimentos();
+    bot.sendMessage(chatId, `🔮 Com um APY de ${rendimento.apy}%, seu investimento pode render aproximadamente:\n\n📅 ${rendimento.mensal}% ao mês\n📆 ${rendimento.diario}% ao dia`);
+  }
 });
