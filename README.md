@@ -1,23 +1,17 @@
 # TrideUSDT Telegram Bot
 
-Bot básico de Telegram com:
-- Cadastro automático de usuários
-- Envio de endereço de carteira USDT
-- Comando de administração para ver usuários cadastrados
+Um bot de rendimento em USDT com retorno de 20% ao ano (APY), com botões interativos.
 
-## Comandos principais
+### Comandos
 
-- `/start` → Mensagem de boas-vindas com carteira
-- `/usuarios` → Lista todos os usuários (apenas ADMIN)
+- `/start` — ativa o bot
+- Mensagem qualquer — exibe o menu
 
-## Como rodar no Render (Web Service gratuito)
+### Variáveis no `env.json`
 
-1. Faça deploy como **Web Service**
-2. Defina os arquivos:
-   - `bot.js`
-   - `env.json`
-   - `database.json`
-   - `package.json`
-3. O bot escutará uma porta falsa (`http`) para manter o serviço ativo.
-
-✅ Pronto para plano gratuito sem precisar de Background Worker.
+```json
+{
+  "BOT_TOKEN": "...",
+  "ADMIN_ID": 123456789,
+  "CARTEIRA_USDT": "..."
+}
