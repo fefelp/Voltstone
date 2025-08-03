@@ -1,24 +1,22 @@
-# 🤖 VoltStone Bot – Carteira de Investimento USDT
+# VoltstoneBot
 
-Um bot de Telegram com painel interativo para depósitos em **USDT (BEP-20)** com rendimento de até **20% APY**.
-
----
-
-## 🚀 Funcionalidades
-
-- 💼 **Depósito via USDT (BEP20)**
-- 📈 **Rendimento automático calculado**
-- 📊 **Painel do usuário interativo**
-- 🔐 **Painel de administrador (/admin)**
-- 🪪 **Verificação automática via BSCScan**
-- 🔁 **Solicitação de resgate manual**
+Bot de rendimento passivo no Telegram baseado em USDT com até **20% APY**.
 
 ---
 
-## 📦 Instalação
+## Funcionalidades
 
-### 1. Clone o repositório
+- Cadastro automático via Telegram ID
+- Depósito manual via carteira TRC-20
+- Visualização de saldo, rendimentos e histórico
+- Solicitação de saque
+- Painel de administração para confirmar depósitos, lançamentos de rendimentos e saques
 
-```bash
-git clone https://github.com/seu-usuario/voltstone-bot.git
-cd voltstone-bot
+---
+
+## Como rodar
+
+1. Clone o repositório:
+   ```bash
+   git clone https://github.com/seuusuario/voltstonebot.git
+   cd voltstonebot
