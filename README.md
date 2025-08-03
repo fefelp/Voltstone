@@ -1,17 +1,30 @@
-# TrideUSDT Telegram Bot
+# TrideUSDT - Telegram Rendimentos Bot
 
-Um bot de rendimento em USDT com retorno de 20% ao ano (APY), com botões interativos.
+Um bot de Telegram que simula rendimentos em USDT com 20% APY. Os usuários podem:
+- Ver o saldo da carteira
+- Consultar rendimento
+- Ver projeção de ganhos
+- Histórico
+- Realizar depósitos e saques fictícios
 
-### Comandos
+## 📦 Funcionalidades
 
-- `/start` — ativa o bot
-- Mensagem qualquer — exibe o menu
+- Carteira (endereçada como "Depósito")
+- Rendimento (20% APY)
+- Projeção de lucros
+- Histórico
+- Saque
+- Mensagem de boas-vindas com linguagem de marketing
+- Interface com botões inline e teclado Telegram
 
-### Variáveis no `env.json`
+---
 
-```json
-{
-  "BOT_TOKEN": "...",
-  "ADMIN_ID": 123456789,
-  "CARTEIRA_USDT": "..."
-}
+## 🚀 Tecnologias
+
+- Node.js
+- Telegraf (framework para bots do Telegram)
+- JSON como banco de dados simples
+
+---
+
+## 📁 Estrutura de Arquivos
