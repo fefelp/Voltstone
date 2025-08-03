@@ -1,44 +1,61 @@
-const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
-const path = require('path');
+import TelegramBot from 'node-telegram-bot-api';
+import fs from 'fs';
+import http from 'http';
 
-// Caminho dos arquivos
-const ENV_FILE = path.join(__dirname, 'env.json');
-const DB_FILE = path.join(__dirname, 'database.json');
+// Carrega variáveis do env.json
+const config = JSON.parse(fs.readFileSync('./env.json', 'utf-8'));
+const { BOT_TOKEN, ADMIN_ID, CARTEIRA_USDT } = config;
 
-// Carrega env.json
-const { BOT_TOKEN, ADMIN_ID, CARTEIRA_USDT } = JSON.parse(fs.readFileSync(ENV_FILE));
-
-// Cria bot
+// Inicializa o bot em modo polling
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Carrega banco (ou cria)
-let db = { usuarios: [] };
-if (fs.existsSync(DB_FILE)) {
-  db = JSON.parse(fs.readFileSync(DB_FILE));
+// Carrega ou cria o database
+const dbPath = './database.json';
+let database = { users: [] };
+
+try {
+  if (fs.existsSync(dbPath)) {
+    database = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+  } else {
+    fs.writeFileSync(dbPath, JSON.stringify(database, null, 2));
+  }
+} catch (err) {
+  console.error("Erro ao carregar o banco de dados:", err);
 }
 
-// Comando /start
+// Salva database
+function salvarDB() {
+  fs.writeFileSync(dbPath, JSON.stringify(database, null, 2));
+}
+
+// Início
 bot.onText(/\/start/, (msg) => {
-  const userId = msg.from.id;
-  const name = msg.from.first_name;
+  const chatId = msg.chat.id;
+  const user = { id: chatId, username: msg.from.username || 'sem_username' };
 
-  const jaRegistrado = db.usuarios.find(u => u.id === userId);
-
-  if (!jaRegistrado) {
-    db.usuarios.push({ id: userId, nome: name, data: new Date().toISOString() });
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  if (!database.users.find(u => u.id === chatId)) {
+    database.users.push(user);
+    salvarDB();
   }
 
-  const text = `👋 Olá ${name}!\n\n💰 Endereço da carteira USDT:\n\`${CARTEIRA_USDT}\`\n\nCopie e envie para quem for depositar.`;
-
-  bot.sendMessage(userId, text, { parse_mode: 'Markdown' });
+  bot.sendMessage(chatId, `👋 Olá! Seja bem-vindo.\nCarteira USDT para depósitos:\n\n${CARTEIRA_USDT}`);
 });
 
-// Comando /usuarios (só admin)
+// Comando só para o admin
 bot.onText(/\/usuarios/, (msg) => {
-  if (msg.from.id.toString() !== ADMIN_ID.toString()) return;
+  const chatId = msg.chat.id;
+  if (chatId.toString() !== ADMIN_ID.toString()) return;
 
-  const texto = db.usuarios.map(u => `• ${u.nome} (ID: ${u.id})`).join('\n') || 'Nenhum usuário ainda.';
-  bot.sendMessage(msg.chat.id, `👥 *Usuários cadastrados:*\n\n${texto}`, { parse_mode: 'Markdown' });
+  const lista = database.users.map(u => `• ${u.username} (${u.id})`).join('\n');
+  const resposta = lista || 'Nenhum usuário registrado ainda.';
+  bot.sendMessage(chatId, `👥 Lista de usuários:\n\n${resposta}`);
+});
+
+// ⚠️ Servidor HTTP obrigatório para Render Web Service
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('Bot está rodando!');
+}).listen(PORT, () => {
+  console.log(`Servidor HTTP escutando na porta ${PORT}`);
 });
