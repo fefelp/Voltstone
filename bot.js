@@ -1,54 +1,45 @@
-import json
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode
-from aiogram.utils import executor
-from database import load_balance, save_balance
+const { Telegraf } = require('telegraf');
+const fs = require('fs');
+const { addUser } = require('./database');
 
-# Carregar variáveis do arquivo
-with open("env.json", "r") as f:
-    config = json.load(f)
+// Carregar variáveis de ambiente
+const env = JSON.parse(fs.readFileSync('./env.json'));
+const { BOT_TOKEN, ADMIN_ID, CARTEIRA_USDT } = env;
 
-BOT_TOKEN = config["BOT_TOKEN"]
-ADMIN_ID = config["ADMIN_ID"]
-CARTEIRA_USDT = config["CARTEIRA_USDT"]
+// Inicializa o bot
+const bot = new Telegraf(BOT_TOKEN);
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher(bot)
+// Comando /start
+bot.start((ctx) => {
+  addUser(ctx);
+  ctx.reply(`Bem-vindo, ${ctx.from.first_name}! 🪙\nCarteira USDT: ${CARTEIRA_USDT}`);
+});
 
-@dp.message_handler(commands=["start"])
-async def start(message: types.Message):
-    user_id = str(message.from_user.id)
-    username = message.from_user.username or "usuário"
-    balance = load_balance(user_id)
-    text = (
-        f"👋 Olá, {username}!\n"
-        f"💼 Sua carteira é: <code>{CARTEIRA_USDT}</code>\n"
-        f"💰 Seu saldo: <b>{balance} USDT</b>\n\n"
-        f"Use /tap para ganhar 0.01 USDT!"
-    )
-    await message.answer(text)
+// Comando /carteira
+bot.command('carteira', (ctx) => {
+  ctx.reply(`💰 Endereço da carteira USDT: ${CARTEIRA_USDT}`);
+});
 
-@dp.message_handler(commands=["tap"])
-async def tap(message: types.Message):
-    user_id = str(message.from_user.id)
-    balance = load_balance(user_id)
-    balance += 0.01
-    save_balance(user_id, balance)
-    await message.answer(f"💸 Você ganhou 0.01 USDT!\nSaldo atual: <b>{balance:.2f} USDT</b>")
+// Comando restrito ao admin
+bot.command('usuarios', (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('❌ Sem permissão.');
 
-@dp.message_handler(commands=["saldo"])
-async def saldo(message: types.Message):
-    user_id = str(message.from_user.id)
-    balance = load_balance(user_id)
-    await message.answer(f"💰 Seu saldo atual é: <b>{balance:.2f} USDT</b>")
+  const sqlite3 = require('sqlite3').verbose();
+  const db = new sqlite3.Database('./database.db');
 
-@dp.message_handler(commands=["admin"])
-async def admin_cmd(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.reply("🚫 Você não tem permissão para isso.")
-        return
-    await message.reply("✅ Comando de admin executado com sucesso.")
+  db.all('SELECT * FROM users', (err, rows) => {
+    if (err) return ctx.reply('Erro ao acessar o banco de dados.');
+    if (!rows.length) return ctx.reply('Nenhum usuário encontrado.');
 
-if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    const lista = rows.map(u => `👤 ${u.first_name} (@${u.username || 'sem_username'})`).join('\n');
+    ctx.reply(`👥 Usuários registrados:\n\n${lista}`);
+  });
+});
+
+// Inicializa polling
+bot.launch();
+console.log("✅ Bot está rodando...");
+
+// Encerrar corretamente
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
