@@ -1,23 +1,25 @@
-import os
-import json
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('./database.db');
 
-DB_FILE = "wallets.json"
+// Criação de tabela de usuários
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    joined_at TEXT
+  )`);
+});
 
-def load_data():
-    if not os.path.exists(DB_FILE):
-        return {}
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+function addUser(ctx) {
+  const { id, username, first_name } = ctx.from;
+  const joined_at = new Date().toISOString();
 
-def save_data(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+  db.run(
+    `INSERT OR IGNORE INTO users (id, username, first_name, joined_at)
+     VALUES (?, ?, ?, ?)`,
+    [id, username || '', first_name || '', joined_at]
+  );
+}
 
-def load_balance(user_id):
-    data = load_data()
-    return data.get(user_id, 0)
-
-def save_balance(user_id, balance):
-    data = load_data()
-    data[user_id] = round(balance, 2)
-    save_data(data)
+module.exports = { db, addUser };
