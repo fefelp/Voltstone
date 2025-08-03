@@ -1,12 +1,13 @@
 {
-  "name": "trideusdt-bot",
+  "name": "voltstonebot",
   "version": "1.0.0",
-  "description": "Bot de tap-to-earn USDT",
-  "main": "bot.py",
+  "description": "Telegram bot usando Telegraf e SQLite",
+  "main": "bot.js",
   "scripts": {
-    "start": "python3 bot.py"
+    "start": "node bot.js"
   },
   "dependencies": {
-    "aiogram": "^2.25.2"
+    "telegraf": "^4.12.2",
+    "sqlite3": "^5.1.6"
   }
 }
