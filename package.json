@@ -1,0 +1,12 @@
+{
+  "name": "trideusdt-bot",
+  "version": "1.0.0",
+  "description": "Bot de tap-to-earn USDT",
+  "main": "bot.py",
+  "scripts": {
+    "start": "python3 bot.py"
+  },
+  "dependencies": {
+    "aiogram": "^2.25.2"
+  }
+}
