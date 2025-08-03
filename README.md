@@ -1,30 +1,26 @@
-# TrideUSDT - Telegram Rendimentos Bot
+# VoltstoneBot - Telegram Cryptocurrency Investment Bot
 
-Um bot de Telegram que simula rendimentos em USDT com 20% APY. Os usuários podem:
-- Ver o saldo da carteira
-- Consultar rendimento
-- Ver projeção de ganhos
-- Histórico
-- Realizar depósitos e saques fictícios
+A professional Telegram bot for cryptocurrency investment management with USDT TRC20 support, featuring automated investment tracking, projection calculations, and user management.
 
-## 📦 Funcionalidades
+## 🚀 Features
 
-- Carteira (endereçada como "Depósito")
-- Rendimento (20% APY)
-- Projeção de lucros
-- Histórico
-- Saque
-- Mensagem de boas-vindas com linguagem de marketing
-- Interface com botões inline e teclado Telegram
+- **Investment Management**: Track USDT TRC20 deposits and calculate returns
+- **Projection Calculator**: Real-time investment projections with 20% APY
+- **User Dashboard**: Complete profile and investment history
+- **Admin Panel**: Comprehensive administration tools
+- **Security**: Rate limiting, user blocking, and secure input validation
+- **Deployment Ready**: Configured for Render.com hosting
 
----
+## 📋 Prerequisites
 
-## 🚀 Tecnologias
+- Node.js 16+ 
+- Telegram Bot Token (from @BotFather)
+- USDT TRC20 Wallet Address
+- Admin Telegram User ID
 
-- Node.js
-- Telegraf (framework para bots do Telegram)
-- JSON como banco de dados simples
+## 🛠️ Installation
 
----
-
-## 📁 Estrutura de Arquivos
+1. **Clone the repository**
+```bash
+git clone <your-repo-url>
+cd voltstone-bot
