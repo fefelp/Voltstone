@@ -1,7 +1,7 @@
 {
   "name": "voltstonebot",
   "version": "1.0.0",
-  "description": "Telegram bot usando Telegraf e SQLite",
+  "description": "Telegram bot com Telegraf e SQLite",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
