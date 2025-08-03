@@ -1,65 +1,86 @@
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
+const db = require('./db');
 
-const env = JSON.parse(fs.readFileSync('./env.json', 'utf-8'));
-const BOT_TOKEN = env.BOT_TOKEN;
-const ADMIN_ID = env.ADMIN_ID;
-const CARTEIRA_USDT = env.CARTEIRA_USDT;
+const env = JSON.parse(fs.readFileSync('./env.json'));
+const bot = new TelegramBot(env.BOT_TOKEN, { polling: true });
 
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+function calcularRendimento(balance) {
+  const apy = 0.20;
+  const dailyRate = Math.pow(1 + apy, 1 / 365) - 1;
+  return +(balance * dailyRate).toFixed(6);
+}
 
-// Função para calcular rendimento baseado em 20% APY
-function calcularRendimentos(apy = 20) {
-  const rendimentoMensal = (Math.pow(1 + apy / 100, 1 / 12) - 1) * 100;
-  const rendimentoDiario = (Math.pow(1 + apy / 100, 1 / 365) - 1) * 100;
-  return {
-    apy,
-    mensal: rendimentoMensal.toFixed(2),
-    diario: rendimentoDiario.toFixed(4)
-  };
+function enviarMenu(chatId) {
+  bot.sendMessage(chatId, "📋 *Menu principal*", {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "💼 Carteira", callback_data: "carteira" }],
+        [{ text: "📈 Rendimento", callback_data: "rendimento" }],
+        [{ text: "📊 Projeção", callback_data: "projecao" }],
+        [{ text: "📜 Histórico", callback_data: "historico" }],
+        [{ text: "💸 Saque", callback_data: "saque" }]
+      ]
+    }
+  });
 }
 
 bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  const nome = msg.from.first_name || "usuário";
-  const rendimento = calcularRendimentos();
-
-  const mensagem = `
-👋 Olá, ${nome}!
-
-🎉 Bem-vindo ao TrideUSDT — sua carteira de rendimento automático!
-
-📥 Sua carteira USDT para depósitos:
-\`\`\`
-${CARTEIRA_USDT}
-\`\`\`
-
-📈 Rendimento atual:
-- 🔁 *${rendimento.apy}% APY* (anual)
-- 📅 ~ *${rendimento.mensal}% ao mês*
-- 📆 ~ *${rendimento.diario}% ao dia*
-
-💸 Digite *saque* para solicitar retirada.
-📊 Digite *histórico* para ver suas movimentações.
-🔮 Digite *projeção* para simular seus ganhos.
-📞 Ajuda: fale com @seu_admin_username
-
-✅ Seu saldo é atualizado diariamente.
-  `;
-
-  bot.sendMessage(chatId, mensagem, { parse_mode: "Markdown" });
+  const id = msg.from.id;
+  if (!db.usuarios[id]) {
+    db.usuarios[id] = { balance: 0 };
+    db.historico[id] = [];
+  }
+  bot.sendMessage(id, `👋 Bem-vindo, ${msg.from.first_name}!\n\nSeu bot está ativo.`)
+    .then(() => enviarMenu(id));
 });
 
 bot.on('message', (msg) => {
-  const chatId = msg.chat.id;
-  const texto = msg.text.toLowerCase();
+  const id = msg.chat.id;
+  if (msg.text === '/start') return;
+  enviarMenu(id);
+});
 
-  if (texto.includes("saque")) {
-    bot.sendMessage(chatId, "💸 Para solicitar um saque, envie o valor desejado e sua carteira USDT TRC20.");
-  } else if (texto.includes("histórico")) {
-    bot.sendMessage(chatId, "📊 Seu histórico estará disponível em breve. Mantenha-se atualizado!");
-  } else if (texto.includes("projecao") || texto.includes("projeção")) {
-    const rendimento = calcularRendimentos();
-    bot.sendMessage(chatId, `🔮 Com um APY de ${rendimento.apy}%, seu investimento pode render aproximadamente:\n\n📅 ${rendimento.mensal}% ao mês\n📆 ${rendimento.diario}% ao dia`);
+bot.on("callback_query", (query) => {
+  const id = query.from.id;
+  const data = query.data;
+  const user = db.usuarios[id] || { balance: 0 };
+  if (!db.usuarios[id]) {
+    db.usuarios[id] = { balance: 0 };
+    db.historico[id] = [];
+  }
+
+  if (data === "carteira") {
+    bot.sendMessage(id, `💼 Sua carteira USDT:\n\`${env.CARTEIRA_USDT}\``, { parse_mode: "Markdown" });
+  }
+
+  if (data === "rendimento") {
+    const ganho = calcularRendimento(user.balance);
+    user.balance += ganho;
+    db.historico[id].push({ tipo: "rendimento", valor: ganho, data: new Date() });
+    bot.sendMessage(id, `📈 Você recebeu *${ganho.toFixed(6)} USDT* hoje.`, { parse_mode: "Markdown" });
+  }
+
+  if (data === "projecao") {
+    const dias = 30;
+    let saldo = user.balance;
+    const apy = 0.20;
+    const dailyRate = Math.pow(1 + apy, 1 / 365) - 1;
+    for (let i = 0; i < dias; i++) saldo += saldo * dailyRate;
+    bot.sendMessage(id, `📊 Projeção em 30 dias: *${saldo.toFixed(6)} USDT*`, { parse_mode: "Markdown" });
+  }
+
+  if (data === "historico") {
+    const hist = db.historico[id];
+    if (!hist.length) return bot.sendMessage(id, "📜 Sem histórico ainda.");
+    const texto = hist.map((h, i) =>
+      `${i + 1}. ${h.tipo.toUpperCase()}: ${h.valor.toFixed(6)} em ${new Date(h.data).toLocaleDateString()}`
+    ).join('\n');
+    bot.sendMessage(id, `📜 Histórico:\n\n${texto}`);
+  }
+
+  if (data === "saque") {
+    bot.sendMessage(id, "💸 Para solicitar saque, envie seu endereço e valor para o admin.");
   }
 });
