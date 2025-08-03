@@ -1,86 +1,111 @@
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
-const db = require('./db');
 
-const env = JSON.parse(fs.readFileSync('./env.json'));
-const bot = new TelegramBot(env.BOT_TOKEN, { polling: true });
+// Use sua token do BotFather aqui
+const token = process.env.BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
 
-function calcularRendimento(balance) {
-  const apy = 0.20;
-  const dailyRate = Math.pow(1 + apy, 1 / 365) - 1;
-  return +(balance * dailyRate).toFixed(6);
+const carteiraBase = 'TXXXX...USDT'; // endereço fixo ou base
+const apy = 20;
+const rendimentoDiario = ((1 + apy / 100) ** (1 / 365) - 1) * 100;
+
+const usuarios = {};
+
+function gerarProjecao(valor, dias) {
+  let montante = valor;
+  for (let i = 0; i < dias; i++) {
+    montante *= 1 + rendimentoDiario / 100;
+  }
+  return montante.toFixed(2);
 }
 
-function enviarMenu(chatId) {
-  bot.sendMessage(chatId, "📋 *Menu principal*", {
-    parse_mode: "Markdown",
+bot.onText(/\/start|.*/, (msg) => {
+  const chatId = msg.chat.id;
+  const nome = msg.from.first_name || 'investidor';
+
+  if (!usuarios[chatId]) {
+    usuarios[chatId] = {
+      id: chatId,
+      endereco: `${carteiraBase}`, // Pode incluir o ID se quiser personalizar
+      historico: [],
+    };
+  }
+
+  const mensagemBoasVindas = `
+👋 Olá ${nome}, seja bem-vindo ao *Bot de Rendimento USDT*!  
+
+💸 *Ganhe 20% ao ano (APY)* de forma simples e automática.
+
+📲 Envie USDT para o endereço abaixo e acompanhe seu rendimento diretamente por aqui. Use as opções abaixo:
+`;
+
+  const opcoes = {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "💼 Carteira", callback_data: "carteira" }],
-        [{ text: "📈 Rendimento", callback_data: "rendimento" }],
-        [{ text: "📊 Projeção", callback_data: "projecao" }],
-        [{ text: "📜 Histórico", callback_data: "historico" }],
-        [{ text: "💸 Saque", callback_data: "saque" }]
+        [
+          { text: '📥 Depósito', callback_data: 'deposito' },
+          { text: '📤 Saque', callback_data: 'saque' }
+        ],
+        [
+          { text: '📈 Rendimento', callback_data: 'rendimento' },
+          { text: '📊 Projeção', callback_data: 'projecao' }
+        ],
+        [
+          { text: '🕓 Histórico', callback_data: 'historico' }
+        ]
       ]
-    }
-  });
-}
+    },
+    parse_mode: 'Markdown'
+  };
 
-bot.onText(/\/start/, (msg) => {
-  const id = msg.from.id;
-  if (!db.usuarios[id]) {
-    db.usuarios[id] = { balance: 0 };
-    db.historico[id] = [];
-  }
-  bot.sendMessage(id, `👋 Bem-vindo, ${msg.from.first_name}!\n\nSeu bot está ativo.`)
-    .then(() => enviarMenu(id));
+  bot.sendMessage(chatId, mensagemBoasVindas, opcoes);
 });
 
-bot.on('message', (msg) => {
-  const id = msg.chat.id;
-  if (msg.text === '/start') return;
-  enviarMenu(id);
-});
+bot.on('callback_query', (query) => {
+  const chatId = query.message.chat.id;
+  const usuario = usuarios[chatId];
 
-bot.on("callback_query", (query) => {
-  const id = query.from.id;
-  const data = query.data;
-  const user = db.usuarios[id] || { balance: 0 };
-  if (!db.usuarios[id]) {
-    db.usuarios[id] = { balance: 0 };
-    db.historico[id] = [];
+  if (!usuario) return;
+
+  const acao = query.data;
+
+  switch (acao) {
+    case 'deposito':
+      bot.sendMessage(chatId, `💰 Envie USDT para o endereço abaixo:\n\n\`${usuario.endereco}\``, {
+        parse_mode: 'Markdown'
+      });
+      break;
+
+    case 'saque':
+      bot.sendMessage(chatId, `🚧 *Função de saque em desenvolvimento.*`, {
+        parse_mode: 'Markdown'
+      });
+      break;
+
+    case 'rendimento':
+      bot.sendMessage(chatId, `📈 O rendimento atual é de *20% ao ano (APY)*.\nIsso representa aproximadamente *${rendimentoDiario.toFixed(4)}% ao dia*.`, {
+        parse_mode: 'Markdown'
+      });
+      break;
+
+    case 'projecao':
+      const valorInicial = 1000;
+      const dias = 365;
+      const futuro = gerarProjecao(valorInicial, dias);
+      bot.sendMessage(chatId, `🔮 Projeção de rendimento com *20% APY*:\n\nInvestindo *1000 USDT* por *1 ano*, você terá aproximadamente *${futuro} USDT*.`, {
+        parse_mode: 'Markdown'
+      });
+      break;
+
+    case 'historico':
+      const h = usuario.historico;
+      if (h.length === 0) {
+        bot.sendMessage(chatId, '📄 Seu histórico está vazio no momento.');
+      } else {
+        const texto = h.map((item, i) => `#${i + 1} - ${item}`).join('\n');
+        bot.sendMessage(chatId, `📄 Histórico:\n\n${texto}`);
+      }
+      break;
   }
 
-  if (data === "carteira") {
-    bot.sendMessage(id, `💼 Sua carteira USDT:\n\`${env.CARTEIRA_USDT}\``, { parse_mode: "Markdown" });
-  }
-
-  if (data === "rendimento") {
-    const ganho = calcularRendimento(user.balance);
-    user.balance += ganho;
-    db.historico[id].push({ tipo: "rendimento", valor: ganho, data: new Date() });
-    bot.sendMessage(id, `📈 Você recebeu *${ganho.toFixed(6)} USDT* hoje.`, { parse_mode: "Markdown" });
-  }
-
-  if (data === "projecao") {
-    const dias = 30;
-    let saldo = user.balance;
-    const apy = 0.20;
-    const dailyRate = Math.pow(1 + apy, 1 / 365) - 1;
-    for (let i = 0; i < dias; i++) saldo += saldo * dailyRate;
-    bot.sendMessage(id, `📊 Projeção em 30 dias: *${saldo.toFixed(6)} USDT*`, { parse_mode: "Markdown" });
-  }
-
-  if (data === "historico") {
-    const hist = db.historico[id];
-    if (!hist.length) return bot.sendMessage(id, "📜 Sem histórico ainda.");
-    const texto = hist.map((h, i) =>
-      `${i + 1}. ${h.tipo.toUpperCase()}: ${h.valor.toFixed(6)} em ${new Date(h.data).toLocaleDateString()}`
-    ).join('\n');
-    bot.sendMessage(id, `📜 Histórico:\n\n${texto}`);
-  }
-
-  if (data === "saque") {
-    bot.sendMessage(id, "💸 Para solicitar saque, envie seu endereço e valor para o admin.");
-  }
+  bot.answerCallbackQuery(query.id);
 });
