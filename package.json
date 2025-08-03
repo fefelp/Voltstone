@@ -1,11 +1,13 @@
 {
-  "name": "trideusdt-bot",
+  "name": "bot-rendimento",
   "version": "1.0.0",
+  "description": "Bot de rendimento 20% APY no Telegram",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node server.js && node bot.js"
   },
   "dependencies": {
+    "express": "^4.18.2",
     "node-telegram-bot-api": "^0.61.0"
   }
 }
