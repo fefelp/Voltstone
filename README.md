@@ -1,16 +1,23 @@
-# VoltStonebot
+# TrideUSDT Telegram Bot
 
-Um bot simples de Telegram para exibir uma carteira USDT e listar usuários cadastrados.
+Bot básico de Telegram com:
+- Cadastro automático de usuários
+- Envio de endereço de carteira USDT
+- Comando de administração para ver usuários cadastrados
 
-## Comandos
-- `/start` → Envia a carteira USDT
-- `/usuarios` → Lista usuários (somente admin)
+## Comandos principais
 
-## Variáveis (em `env.json` ou via Render):
-- `BOT_TOKEN` → Token do seu bot
-- `ADMIN_ID` → ID do administrador
-- `CARTEIRA_USDT` → Endereço da carteira
+- `/start` → Mensagem de boas-vindas com carteira
+- `/usuarios` → Lista todos os usuários (apenas ADMIN)
 
----
+## Como rodar no Render (Web Service gratuito)
 
-Feito com Node.js usando `node-telegram-bot-api`.
+1. Faça deploy como **Web Service**
+2. Defina os arquivos:
+   - `bot.js`
+   - `env.json`
+   - `database.json`
+   - `package.json`
+3. O bot escutará uma porta falsa (`http`) para manter o serviço ativo.
+
+✅ Pronto para plano gratuito sem precisar de Background Worker.
