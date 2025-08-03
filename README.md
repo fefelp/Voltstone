@@ -1,15 +1,16 @@
-# VoltStoneBot
+# VoltStonebot
 
-Bot de Telegram usando Node.js, Telegraf e SQLite.
+Um bot simples de Telegram para exibir uma carteira USDT e listar usuários cadastrados.
 
-## ✅ Comandos
+## Comandos
+- `/start` → Envia a carteira USDT
+- `/usuarios` → Lista usuários (somente admin)
 
-- `/start` – Inicia o bot e registra o usuário
-- `/carteira` – Mostra a carteira USDT
-- `/usuarios` – (Admin) Lista todos os usuários registrados
+## Variáveis (em `env.json` ou via Render):
+- `BOT_TOKEN` → Token do seu bot
+- `ADMIN_ID` → ID do administrador
+- `CARTEIRA_USDT` → Endereço da carteira
 
-## 🚀 Como rodar
+---
 
-```bash
-npm install
-npm start
+Feito com Node.js usando `node-telegram-bot-api`.
