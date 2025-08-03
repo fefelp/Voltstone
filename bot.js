@@ -1,9 +1,18 @@
+// Carrega variáveis de ambiente do arquivo .env (local)
+require('dotenv').config();
+
 const { Telegraf, Markup } = require('telegraf');
 const { db, init } = require('./db');
 const config = require('./config');
 const { formatarValor, hoje } = require('./helpers');
 
 init();
+
+if (!config.botToken) {
+  console.error("⚠️ Bot token não definido. Defina a variável de ambiente BOT_TOKEN.");
+  process.exit(1);
+}
+
 const bot = new Telegraf(config.botToken);
 
 // Cria usuário se ainda não existir
@@ -61,7 +70,7 @@ bot.hears('📥 Depositar', (ctx) => {
 });
 
 bot.hears('📊 Ver Saldo', (ctx) => {
-  const id = ctx.from.id;
+  const id = ctx.from.id.toString();
   db.get(
     'SELECT SUM(valor) as total FROM depositos WHERE telegram_id = ?',
     [id],
@@ -73,7 +82,7 @@ bot.hears('📊 Ver Saldo', (ctx) => {
 });
 
 bot.hears('📈 Meus Rendimentos', (ctx) => {
-  const id = ctx.from.id;
+  const id = ctx.from.id.toString();
   db.get(
     'SELECT rendimento_estimado, data_referencia FROM rendimentos WHERE telegram_id = ? ORDER BY id DESC LIMIT 1',
     [id],
@@ -99,7 +108,7 @@ bot.hears('💸 Sacar', (ctx) => {
 
       db.run(
         'INSERT INTO saques (telegram_id, valor, carteira, status, data_solicitacao) VALUES (?, ?, ?, ?, ?)',
-        [ctx3.from.id, valor, carteira, 'pendente', hoje()]
+        [ctx3.from.id.toString(), valor, carteira, 'pendente', hoje()]
       );
       ctx3.reply('✅ Solicitação de saque enviada! Será processada em até 48h.');
     });
@@ -107,7 +116,7 @@ bot.hears('💸 Sacar', (ctx) => {
 });
 
 bot.hears('📜 Histórico', (ctx) => {
-  const id = ctx.from.id;
+  const id = ctx.from.id.toString();
   db.all(
     'SELECT * FROM depositos WHERE telegram_id = ? ORDER BY data DESC LIMIT 5',
     [id],
@@ -174,5 +183,9 @@ bot.hears('📤 Confirmar Saque', (ctx) => {
   ctx.reply('🔍 Função não implementada: use o banco para atualizar o status de saque manualmente.');
 });
 
-bot.launch();
-console.log('🤖 Voltstone Bot está rodando...');
+bot.launch().then(() => {
+  console.log('🤖 Voltstone Bot está rodando...');
+}).catch((err) => {
+  console.error('Erro ao iniciar o bot:', err);
+  process.exit(1);
+});
