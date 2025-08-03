@@ -1,45 +1,44 @@
-const { Telegraf } = require('telegraf');
+const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
-const { addUser } = require('./database');
+const path = require('path');
 
-// Carregar variáveis de ambiente
-const env = JSON.parse(fs.readFileSync('./env.json'));
-const { BOT_TOKEN, ADMIN_ID, CARTEIRA_USDT } = env;
+// Caminho dos arquivos
+const ENV_FILE = path.join(__dirname, 'env.json');
+const DB_FILE = path.join(__dirname, 'database.json');
 
-// Inicializa o bot
-const bot = new Telegraf(BOT_TOKEN);
+// Carrega env.json
+const { BOT_TOKEN, ADMIN_ID, CARTEIRA_USDT } = JSON.parse(fs.readFileSync(ENV_FILE));
+
+// Cria bot
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+// Carrega banco (ou cria)
+let db = { usuarios: [] };
+if (fs.existsSync(DB_FILE)) {
+  db = JSON.parse(fs.readFileSync(DB_FILE));
+}
 
 // Comando /start
-bot.start((ctx) => {
-  addUser(ctx);
-  ctx.reply(`Bem-vindo, ${ctx.from.first_name}! 🪙\nCarteira USDT: ${CARTEIRA_USDT}`);
+bot.onText(/\/start/, (msg) => {
+  const userId = msg.from.id;
+  const name = msg.from.first_name;
+
+  const jaRegistrado = db.usuarios.find(u => u.id === userId);
+
+  if (!jaRegistrado) {
+    db.usuarios.push({ id: userId, nome: name, data: new Date().toISOString() });
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  }
+
+  const text = `👋 Olá ${name}!\n\n💰 Endereço da carteira USDT:\n\`${CARTEIRA_USDT}\`\n\nCopie e envie para quem for depositar.`;
+
+  bot.sendMessage(userId, text, { parse_mode: 'Markdown' });
 });
 
-// Comando /carteira
-bot.command('carteira', (ctx) => {
-  ctx.reply(`💰 Endereço da carteira USDT: ${CARTEIRA_USDT}`);
+// Comando /usuarios (só admin)
+bot.onText(/\/usuarios/, (msg) => {
+  if (msg.from.id.toString() !== ADMIN_ID.toString()) return;
+
+  const texto = db.usuarios.map(u => `• ${u.nome} (ID: ${u.id})`).join('\n') || 'Nenhum usuário ainda.';
+  bot.sendMessage(msg.chat.id, `👥 *Usuários cadastrados:*\n\n${texto}`, { parse_mode: 'Markdown' });
 });
-
-// Comando restrito ao admin
-bot.command('usuarios', (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply('❌ Sem permissão.');
-
-  const sqlite3 = require('sqlite3').verbose();
-  const db = new sqlite3.Database('./database.db');
-
-  db.all('SELECT * FROM users', (err, rows) => {
-    if (err) return ctx.reply('Erro ao acessar o banco de dados.');
-    if (!rows.length) return ctx.reply('Nenhum usuário encontrado.');
-
-    const lista = rows.map(u => `👤 ${u.first_name} (@${u.username || 'sem_username'})`).join('\n');
-    ctx.reply(`👥 Usuários registrados:\n\n${lista}`);
-  });
-});
-
-// Inicializa polling
-bot.launch();
-console.log("✅ Bot está rodando...");
-
-// Encerrar corretamente
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
