@@ -1,105 +1,178 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const db = require('./db');
-const tronscan = require('./tronscan');
+const { Telegraf, Markup } = require('telegraf');
+const { db, init } = require('./db');
+const config = require('./config');
+const { formatarValor, hoje } = require('./helpers');
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, { webHook: { port: process.env.PORT || 3000 } });
+init();
+const bot = new Telegraf(config.botToken);
 
-// 🧠 Idiomas
-const userLang = {};
+// Cria usuário se ainda não existir
+function registrarUsuario(ctx) {
+  const telegram_id = ctx.from.id.toString();
+  const nome = ctx.from.first_name;
+  const username = ctx.from.username || '';
+  const data_cadastro = hoje();
 
-// Conecta Webhook
-bot.setWebHook(`${process.env.BASE_URL}/bot${process.env.BOT_TOKEN}`);
+  db.get('SELECT * FROM usuarios WHERE telegram_id = ?', [telegram_id], (err, row) => {
+    if (!row) {
+      db.run(
+        'INSERT INTO usuarios (telegram_id, nome, username, data_cadastro) VALUES (?, ?, ?, ?)',
+        [telegram_id, nome, username, data_cadastro]
+      );
+    }
+  });
+}
 
-const app = express();
-app.use(express.json());
-app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
+// Menu principal
+bot.start((ctx) => {
+  registrarUsuario(ctx);
+  ctx.reply(
+    `💰 *Ganhe até 20% APY* investindo em *USDT* com o *Voltstone Bot*! 
+Totalmente automatizado, seguro e com retirada mensal. Comece agora mesmo.`,
+    Markup.keyboard([
+      ['📥 Depositar', '📈 Meus Rendimentos'],
+      ['💸 Sacar', '📊 Ver Saldo'],
+      ['📜 Histórico']
+    ])
+    .resize()
+    .oneTime()
+  );
 });
 
-app.get('/', (req, res) => res.send('Tride USDT Webhook running!'));
+// Comando /admin
+bot.command('admin', (ctx) => {
+  if (ctx.from.id !== config.adminId) return;
+  ctx.reply(
+    '🔐 Painel do administrador',
+    Markup.keyboard([
+      ['➕ Confirmar Depósito', '📤 Confirmar Saque'],
+      ['📊 Lançar Rendimento'],
+      ['⬅️ Voltar']
+    ])
+    .resize()
+  );
+});
 
-// Banco de dados
-db.inicializar()
-  .then(() => console.log("✅ Database initialized"))
-  .catch(err => console.error("❌ Error initializing DB:", err));
+// Botões principais
+bot.hears('📥 Depositar', (ctx) => {
+  ctx.reply(
+    `Para investir, envie no mínimo *${formatarValor(config.depositoMinimo)}* em USDT (rede TRC-20) para a seguinte carteira:\n\n\`${config.carteiraDeposito}\`\n\n📌 O crédito será validado em até 24h.`
+  );
+});
 
-// Comandos e callbacks
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, texts.en.languagePrompt, {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "🇧🇷 Português", callback_data: "lang_pt" }],
-        [{ text: "🇺🇸 English", callback_data: "lang_en" }],
-        [{ text: "🇪🇸 Español", callback_data: "lang_es" }]
-      ]
+bot.hears('📊 Ver Saldo', (ctx) => {
+  const id = ctx.from.id;
+  db.get(
+    'SELECT SUM(valor) as total FROM depositos WHERE telegram_id = ?',
+    [id],
+    (err, row) => {
+      const total = row?.total || 0;
+      ctx.reply(`💼 Seu saldo total depositado é: *${formatarValor(total)}*`);
     }
+  );
+});
+
+bot.hears('📈 Meus Rendimentos', (ctx) => {
+  const id = ctx.from.id;
+  db.get(
+    'SELECT rendimento_estimado, data_referencia FROM rendimentos WHERE telegram_id = ? ORDER BY id DESC LIMIT 1',
+    [id],
+    (err, row) => {
+      if (!row) {
+        return ctx.reply('⚠️ Nenhum rendimento estimado ainda.');
+      }
+      ctx.reply(
+        `📈 Rendimento estimado em ${row.data_referencia}:\n\n*${row.rendimento_estimado}%* sobre o valor investido.`
+      );
+    }
+  );
+});
+
+bot.hears('💸 Sacar', (ctx) => {
+  ctx.reply('🔗 Envie sua carteira TRC-20 (USDT):');
+  bot.on('text', (ctx2) => {
+    const carteira = ctx2.message.text;
+    ctx2.reply('💰 Qual valor deseja sacar?');
+    bot.on('text', (ctx3) => {
+      const valor = parseFloat(ctx3.message.text);
+      if (isNaN(valor) || valor <= 0) return ctx3.reply('❌ Valor inválido.');
+
+      db.run(
+        'INSERT INTO saques (telegram_id, valor, carteira, status, data_solicitacao) VALUES (?, ?, ?, ?, ?)',
+        [ctx3.from.id, valor, carteira, 'pendente', hoje()]
+      );
+      ctx3.reply('✅ Solicitação de saque enviada! Será processada em até 48h.');
+    });
   });
 });
 
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
-
-  if (data.startsWith('lang_')) {
-    const lang = data.split('_')[1];
-    userLang[chatId] = lang;
-
-    const { welcome, deposit, wallet, withdraw } = texts[lang];
-    const user = await db.getUser(chatId);
-    if (!user) await db.addUser(chatId, query.from.first_name, query.from.username || "");
-
-    return bot.sendMessage(chatId, welcome, {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: deposit, callback_data: "depositar" }],
-          [{ text: wallet, callback_data: "carteira" }],
-          [{ text: withdraw, callback_data: "resgatar" }]
-        ]
-      }
-    });
-  }
-
-  const lang = userLang[chatId] || 'en';
-  const t = texts[lang];
-
-  if (data === 'depositar') {
-    return bot.sendMessage(chatId, t.sendDepositInfo(process.env.WALLET_ADDRESS), { parse_mode: 'HTML' });
-  }
-
-  if (data === 'carteira') {
-    const info = await db.getCarteira(chatId);
-    if (!info) return bot.sendMessage(chatId, t.noDeposit);
-    return bot.sendMessage(chatId, t.walletInfo(info), { parse_mode: 'HTML' });
-  }
-
-  if (data === 'resgatar') {
-    const info = await db.getCarteira(chatId);
-    if (!info || info.investido <= 0) return bot.sendMessage(chatId, t.noBalance);
-    await db.solicitarResgate(chatId, info.investido);
-    return bot.sendMessage(chatId, t.withdrawalRequested(info.investido));
-  }
+bot.hears('📜 Histórico', (ctx) => {
+  const id = ctx.from.id;
+  db.all(
+    'SELECT * FROM depositos WHERE telegram_id = ? ORDER BY data DESC LIMIT 5',
+    [id],
+    (err, rows) => {
+      if (!rows.length) return ctx.reply('⚠️ Nenhum histórico encontrado.');
+      let msg = '📜 Últimos depósitos:\n\n';
+      rows.forEach((r) => {
+        msg += `💵 ${formatarValor(r.valor)} em ${r.data}\n`;
+      });
+      ctx.reply(msg);
+    }
+  );
 });
 
-// Verificação de depósitos TRONSCAN a cada 60s
-setInterval(async () => {
-  try {
-    const txs = await tronscan.getDeposits();
-    for (let tx of txs) {
-      const user = await db.getUserByAddress(tx.from);
-      if (user) {
-        const exists = await db.isTxRegistered(tx.hash);
-        if (!exists) {
-          await db.registrarDeposito(user.id, tx.value, tx.hash, tx.from);
-          const lang = userLang[user.id] || 'en';
-          bot.sendMessage(user.id, texts[lang].depositConfirmed(tx.value));
-        }
-      }
-    }
-  } catch (err) {
-    console.error("❌ Error checking deposits:", err.message);
-  }
-}, 60 * 1000);
+// Admin: Confirmar depósito
+bot.hears('➕ Confirmar Depósito', (ctx) => {
+  if (ctx.from.id !== config.adminId) return;
+  ctx.reply('👤 Envie o @username do usuário:');
+  bot.on('text', (ctx2) => {
+    const user = ctx2.message.text.replace('@', '');
+    db.get('SELECT telegram_id FROM usuarios WHERE username = ?', [user], (err, row) => {
+      if (!row) return ctx2.reply('❌ Usuário não encontrado.');
+      const id = row.telegram_id;
+      ctx2.reply('💵 Qual valor foi depositado?');
+      bot.on('text', (ctx3) => {
+        const valor = parseFloat(ctx3.message.text);
+        if (isNaN(valor)) return ctx3.reply('❌ Valor inválido.');
+        db.run(
+          'INSERT INTO depositos (telegram_id, valor, data) VALUES (?, ?, ?)',
+          [id, valor, hoje()]
+        );
+        ctx3.reply('✅ Depósito confirmado!');
+      });
+    });
+  });
+});
+
+// Admin: Lançar rendimento
+bot.hears('📊 Lançar Rendimento', (ctx) => {
+  if (ctx.from.id !== config.adminId) return;
+  ctx.reply('👤 Envie o @username:');
+  bot.on('text', (ctx2) => {
+    const user = ctx2.message.text.replace('@', '');
+    db.get('SELECT telegram_id FROM usuarios WHERE username = ?', [user], (err, row) => {
+      if (!row) return ctx2.reply('❌ Usuário não encontrado.');
+      const id = row.telegram_id;
+      ctx2.reply('📈 Qual rendimento estimado (%)?');
+      bot.on('text', (ctx3) => {
+        const rendimento = parseFloat(ctx3.message.text);
+        if (isNaN(rendimento)) return ctx3.reply('❌ Valor inválido.');
+        db.run(
+          'INSERT INTO rendimentos (telegram_id, rendimento_estimado, data_referencia) VALUES (?, ?, ?)',
+          [id, rendimento, hoje()]
+        );
+        ctx3.reply('✅ Rendimento registrado.');
+      });
+    });
+  });
+});
+
+// Admin: Confirmar saque
+bot.hears('📤 Confirmar Saque', (ctx) => {
+  if (ctx.from.id !== config.adminId) return;
+  ctx.reply('🔍 Função não implementada: use o banco para atualizar o status de saque manualmente.');
+});
+
+bot.launch();
+console.log('🤖 Voltstone Bot está rodando...');
