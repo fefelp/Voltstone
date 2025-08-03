@@ -1,111 +1,85 @@
 const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
+const config = require('./config/config');
+const logger = require('./utils/logger');
+const messageHandler = require('./handlers/messageHandler');
+const commandHandler = require('./handlers/commandHandler');
 
-// Use sua token do BotFather aqui
-const token = process.env.BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+// Initialize Express app for health checks (required for Render)
+const app = express();
+const PORT = process.env.PORT || 5000;
 
-const carteiraBase = 'TXXXX...USDT'; // endereço fixo ou base
-const apy = 20;
-const rendimentoDiario = ((1 + apy / 100) ** (1 / 365) - 1) * 100;
+// Health check endpoint
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'VoltstoneBot is running', 
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
+    });
+});
 
-const usuarios = {};
+app.get('/health', (req, res) => {
+    res.json({ status: 'healthy', bot: 'active' });
+});
 
-function gerarProjecao(valor, dias) {
-  let montante = valor;
-  for (let i = 0; i < dias; i++) {
-    montante *= 1 + rendimentoDiario / 100;
-  }
-  return montante.toFixed(2);
+// Start Express server
+app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`Health check server running on port ${PORT}`);
+});
+
+// Initialize Telegram Bot
+let bot;
+
+try {
+    bot = new TelegramBot(config.BOT_TOKEN, { 
+        polling: {
+            interval: 1000,
+            autoStart: true,
+            params: {
+                timeout: 10
+            }
+        }
+    });
+
+    logger.info('VoltstoneBot initialized successfully');
+    
+    // Bot event handlers
+    bot.on('polling_error', (error) => {
+        logger.error('Polling error:', error);
+    });
+
+    bot.on('error', (error) => {
+        logger.error('Bot error:', error);
+    });
+
+    // Command handlers
+    commandHandler.setupCommands(bot);
+    
+    // Message handlers
+    messageHandler.setupMessageHandlers(bot);
+
+    logger.info('VoltstoneBot is now running...');
+
+} catch (error) {
+    logger.error('Failed to initialize bot:', error);
+    process.exit(1);
 }
 
-bot.onText(/\/start|.*/, (msg) => {
-  const chatId = msg.chat.id;
-  const nome = msg.from.first_name || 'investidor';
-
-  if (!usuarios[chatId]) {
-    usuarios[chatId] = {
-      id: chatId,
-      endereco: `${carteiraBase}`, // Pode incluir o ID se quiser personalizar
-      historico: [],
-    };
-  }
-
-  const mensagemBoasVindas = `
-👋 Olá ${nome}, seja bem-vindo ao *Bot de Rendimento USDT*!  
-
-💸 *Ganhe 20% ao ano (APY)* de forma simples e automática.
-
-📲 Envie USDT para o endereço abaixo e acompanhe seu rendimento diretamente por aqui. Use as opções abaixo:
-`;
-
-  const opcoes = {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '📥 Depósito', callback_data: 'deposito' },
-          { text: '📤 Saque', callback_data: 'saque' }
-        ],
-        [
-          { text: '📈 Rendimento', callback_data: 'rendimento' },
-          { text: '📊 Projeção', callback_data: 'projecao' }
-        ],
-        [
-          { text: '🕓 Histórico', callback_data: 'historico' }
-        ]
-      ]
-    },
-    parse_mode: 'Markdown'
-  };
-
-  bot.sendMessage(chatId, mensagemBoasVindas, opcoes);
+// Graceful shutdown
+process.on('SIGINT', () => {
+    logger.info('Shutting down VoltstoneBot...');
+    if (bot) {
+        bot.stopPolling();
+    }
+    process.exit(0);
 });
 
-bot.on('callback_query', (query) => {
-  const chatId = query.message.chat.id;
-  const usuario = usuarios[chatId];
-
-  if (!usuario) return;
-
-  const acao = query.data;
-
-  switch (acao) {
-    case 'deposito':
-      bot.sendMessage(chatId, `💰 Envie USDT para o endereço abaixo:\n\n\`${usuario.endereco}\``, {
-        parse_mode: 'Markdown'
-      });
-      break;
-
-    case 'saque':
-      bot.sendMessage(chatId, `🚧 *Função de saque em desenvolvimento.*`, {
-        parse_mode: 'Markdown'
-      });
-      break;
-
-    case 'rendimento':
-      bot.sendMessage(chatId, `📈 O rendimento atual é de *20% ao ano (APY)*.\nIsso representa aproximadamente *${rendimentoDiario.toFixed(4)}% ao dia*.`, {
-        parse_mode: 'Markdown'
-      });
-      break;
-
-    case 'projecao':
-      const valorInicial = 1000;
-      const dias = 365;
-      const futuro = gerarProjecao(valorInicial, dias);
-      bot.sendMessage(chatId, `🔮 Projeção de rendimento com *20% APY*:\n\nInvestindo *1000 USDT* por *1 ano*, você terá aproximadamente *${futuro} USDT*.`, {
-        parse_mode: 'Markdown'
-      });
-      break;
-
-    case 'historico':
-      const h = usuario.historico;
-      if (h.length === 0) {
-        bot.sendMessage(chatId, '📄 Seu histórico está vazio no momento.');
-      } else {
-        const texto = h.map((item, i) => `#${i + 1} - ${item}`).join('\n');
-        bot.sendMessage(chatId, `📄 Histórico:\n\n${texto}`);
-      }
-      break;
-  }
-
-  bot.answerCallbackQuery(query.id);
+process.on('SIGTERM', () => {
+    logger.info('Received SIGTERM, shutting down VoltstoneBot...');
+    if (bot) {
+        bot.stopPolling();
+    }
+    process.exit(0);
 });
+
+module.exports = { bot, app };
